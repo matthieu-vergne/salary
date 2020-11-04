@@ -5,30 +5,31 @@ import static fr.vergne.salary.Main.Profile.*;
 import static fr.vergne.salary.Main.Statistics.*;
 import static java.util.stream.Collectors.*;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 public class Main {
 
 	public static void main(String[] args) {
 		Map<Profile, Statistics> referenceData = createReferenceData();
-		Set<Profile> profiles = referenceData.keySet();
 
 		ModelGenerator modelGenerator = new ModelGenerator(new RandomGenerator(0));
 		Model referenceModel = modelGenerator.createDataBasedModel(referenceData);
 		System.out.println(referenceModel);
 
-		// TODO split profiles into single years of experience
-		// TODO split profiles into single years of seniority
-		double[] statisticsFactor = { 1 };
-		Map<Profile, Statistics> modelData = createFactoredData(referenceData,
-				(profile, statType) -> statisticsFactor[0]);
+		Map<Profile, Statistics> splitData = splitProfiles(referenceData);
+
+		double[] statisticsFactor = { 2 };
+		Map<Profile, Statistics> modelData = createFactoredData(splitData, (profile, statType) -> statisticsFactor[0]);
 		Model model = modelGenerator.createDataBasedModel(modelData);
 
 		// TODO Downhill algorithm to converge parameters to 1
@@ -39,17 +40,47 @@ public class Main {
 		// TODO Parametered model on exponential curves
 		// TODO Parametered model on logarithmic curves
 
-		int limitPerProfile = 100000;
-		Map<Profile, Collection<Double>> salaries = generateSalaries(profiles, model, limitPerProfile);
+		int salariesPerProfile = 100000;
+		Set<Profile> profiles = modelData.keySet();
+		Map<Profile, Collection<Double>> salaries = generateSalaries(model, profiles, salariesPerProfile);
 
+		// Compare stats on salaries to model data
+		// TODO Reduce to min/max errors for Q1/mean/Q3
+		// TODO Adapt StatHelper to aggregate salaries of aggregated profiles
 		for (Profile profile : profiles.stream().sorted(bySeniorityThenExperience()).collect(toList())) {
-			Statistics profileData = referenceData.get(profile);
+			Statistics profileData = modelData.get(profile);
 			StatHelper profileResults = new StatHelper(salaries.get(profile));
 			System.out.println(profile);
 			displayDiff("Q1", profileResults.Q1(), profileData.Q1());
-			displayDiff("moy", profileResults.mean(), profileData.mean());
+			displayDiff("mean", profileResults.mean(), profileData.mean());
 			displayDiff("Q3", profileResults.Q3(), profileData.Q3());
 		}
+		// TODO compare to reference data
+	}
+
+	private static Map<Profile, Statistics> splitProfiles(Map<Profile, Statistics> data) {
+		return data.entrySet().stream()//
+				// Split each aggregated profile into unit profiles with same statistics
+				.flatMap(entry -> {
+					Profile aggregatedProfile = entry.getKey();
+					Statistics statistics = entry.getValue();
+					return Stream.of(aggregatedProfile)//
+							// Split experience in units
+							.flatMap(profile -> IntStream
+									.rangeClosed(profile.experience().start(), profile.experience().stop())//
+									.mapToObj(year -> createInstant(year))//
+									.map(instant -> createProfile(profile.seniority(), instant)))//
+							// Split seniority in units
+							.flatMap(profile -> IntStream
+									.rangeClosed(profile.seniority().start(), profile.seniority().stop())//
+									.mapToObj(year -> createInstant(year))//
+									.map(instant -> createProfile(instant, profile.experience())))//
+							// Pair with statistics
+							.map(unitProfile -> Map.entry(unitProfile, statistics));
+				})// Collect all
+				.collect(toMap(//
+						Entry<Profile, Statistics>::getKey, //
+						Entry<Profile, Statistics>::getValue));
 	}
 
 	private static Comparator<Profile> bySeniorityThenExperience() {
@@ -121,13 +152,13 @@ public class Main {
 		}
 	}
 
-	private static Map<Profile, Collection<Double>> generateSalaries(Set<Profile> profiles, Model model,
-			int limitPerProfile) {
+	private static Map<Profile, Collection<Double>> generateSalaries(Model model, Set<Profile> profiles,
+			int salariesPerProfile) {
 		return profiles.stream()//
 				.sorted(bySeniorityThenExperience())// Order to generate same results with same random seed
 				.collect(toMap(//
 						profile -> profile, //
-						profile -> IntStream.range(0, limitPerProfile)//
+						profile -> IntStream.range(0, salariesPerProfile)//
 								.mapToObj(i -> model.estimateSalary(profile))//
 								.collect(toList())));
 	}
