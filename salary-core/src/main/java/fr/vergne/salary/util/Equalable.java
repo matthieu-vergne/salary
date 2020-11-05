@@ -1,14 +1,14 @@
-package fr.vergne.salary;
+package fr.vergne.salary.util;
 
 import java.util.List;
 import java.util.Objects;
 
-class Equalable<T> {
+public class Equalable<T> {
 	private final Class<T> refClass;
 	private final T ref;
 	private final List<Extractor<T, Object>> extractors;
 
-	interface Extractor<T, U> {
+	public interface Extractor<T, U> {
 		U componentFrom(T t);
 	}
 

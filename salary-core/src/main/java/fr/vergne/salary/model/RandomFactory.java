@@ -1,11 +1,11 @@
-package fr.vergne.salary;
+package fr.vergne.salary.model;
 
-import fr.vergne.salary.Main.Statistics;
+import fr.vergne.salary.data.Statistics;
 
-class RandomGenerator {
+public class RandomFactory {
 	private final java.util.Random rand;
 
-	public RandomGenerator(long seed) {
+	public RandomFactory(long seed) {
 		this.rand = new java.util.Random(seed);
 	}
 
