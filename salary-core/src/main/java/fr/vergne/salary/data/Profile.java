@@ -47,16 +47,10 @@ public interface Profile {
 		return this.seniority().contains(that.seniority()) //
 				&& this.experience().contains(that.experience());
 	}
-	
+
 	public static Comparator<Profile> bySeniorityThenExperience() {
-		Comparator<Period> startComparator = Comparator.comparing(Period::start);
-		Comparator<Period> stopComparator = Comparator.comparing(Period::stop);
-		Comparator<Period> periodComparator = startComparator.thenComparing(stopComparator);
-
-		Comparator<Profile> seniorityComparator = Comparator.comparing(Profile::seniority, periodComparator);
-		Comparator<Profile> experienceComparator = Comparator.comparing(Profile::experience, periodComparator);
-		Comparator<Profile> profileComparator = seniorityComparator.thenComparing(experienceComparator);
-
-		return profileComparator;
+		Comparator<Period> periodComparator = Period.byStartThenStop();
+		return Comparator.comparing(Profile::seniority, periodComparator)//
+				.thenComparing(Profile::experience, periodComparator);
 	}
 }

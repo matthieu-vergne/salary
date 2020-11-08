@@ -4,8 +4,8 @@ import java.util.List;
 import java.util.Objects;
 
 public class Equalable<T> {
-	private final Class<T> refClass;
-	private final T ref;
+	private final Class<T> referenceClass;
+	private final T reference;
 	private final List<Extractor<T, Object>> extractors;
 
 	public interface Extractor<T, U> {
@@ -13,20 +13,20 @@ public class Equalable<T> {
 	}
 
 	@SafeVarargs
-	public Equalable(Class<T> refClass, T ref, Extractor<T, Object>... components) {
-		this.refClass = refClass;
-		this.ref = ref;
+	public Equalable(Class<T> referenceClass, T reference, Extractor<T, Object>... components) {
+		this.referenceClass = referenceClass;
+		this.reference = reference;
 		this.extractors = List.of(components);
 	}
 
 	@Override
 	public boolean equals(Object obj) {
-		if (obj == ref) {
+		if (obj == reference) {
 			return true;
-		} else if (refClass.isInstance(obj)) {
-			T that = refClass.cast(obj);
+		} else if (referenceClass.isInstance(obj)) {
+			T other = referenceClass.cast(obj);
 			return extractors.stream().//
-					map(extract -> Objects.equals(extract.componentFrom(ref), extract.componentFrom(that))).//
+					map(extract -> Objects.equals(extract.componentFrom(reference), extract.componentFrom(other))).//
 					filter(parameterIsEqual -> !parameterIsEqual).//
 					findFirst().orElse(true);
 		} else {
@@ -37,7 +37,7 @@ public class Equalable<T> {
 	@Override
 	public int hashCode() {
 		Object[] components = extractors.stream()//
-				.map(extract -> extract.componentFrom(ref))//
+				.map(extract -> extract.componentFrom(reference))//
 				.toArray();
 		return Objects.hash(components);
 	}

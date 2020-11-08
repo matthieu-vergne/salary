@@ -1,5 +1,7 @@
 package fr.vergne.salary.data;
 
+import java.util.Comparator;
+
 import fr.vergne.salary.util.Equalable;
 
 public interface Period {
@@ -48,5 +50,9 @@ public interface Period {
 	default boolean contains(Period that) {
 		return this.start() <= that.start() //
 				&& this.stop() >= that.stop();
+	}
+
+	static Comparator<Period> byStartThenStop() {
+		return Comparator.comparing(Period::start).thenComparing(Period::stop);
 	}
 }

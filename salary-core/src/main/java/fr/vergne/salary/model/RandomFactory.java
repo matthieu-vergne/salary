@@ -10,7 +10,7 @@ public class RandomFactory {
 	}
 
 	Double gaussian(Statistics stat) {
-		return gaussian(stat.mean(), stat.Q1(), stat.Q3());
+		return gaussian(stat.mean(), stat.q1(), stat.q3());
 	}
 
 	Double gaussian(double mean, double Q1, double Q3) {

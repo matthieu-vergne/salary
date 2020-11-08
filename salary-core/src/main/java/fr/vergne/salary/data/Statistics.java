@@ -7,14 +7,14 @@ public interface Statistics {
 
 	public static final Statistics ZEROS = create(0, 0, 0);
 
-	double Q1();
+	double q1();
 
 	double mean();
 
-	double Q3();
+	double q3();
 
 	public static enum Type {
-		Q1(Statistics::Q1), MEAN(Statistics::mean), Q3(Statistics::Q3);
+		Q1(Statistics::q1), MEAN(Statistics::mean), Q3(Statistics::q3);
 
 		private final Function<Statistics, Double> method;
 
@@ -28,14 +28,14 @@ public interface Statistics {
 	};
 
 	static Statistics create(//
-			Supplier<Double> Q1, //
+			Supplier<Double> q1, //
 			Supplier<Double> mean, //
-			Supplier<Double> Q3) {
+			Supplier<Double> q3) {
 		return new Statistics() {
 
 			@Override
-			public double Q1() {
-				return Q1.get();
+			public double q1() {
+				return q1.get();
 			}
 
 			@Override
@@ -44,28 +44,28 @@ public interface Statistics {
 			}
 
 			@Override
-			public double Q3() {
-				return Q3.get();
+			public double q3() {
+				return q3.get();
 			}
 		};
 	}
 
 	default Statistics transform(//
-			Function<Statistics, Double> Q1, //
+			Function<Statistics, Double> q1, //
 			Function<Statistics, Double> mean, //
-			Function<Statistics, Double> Q3) {
+			Function<Statistics, Double> q3) {
 		return create(//
-				() -> Q1.apply(this), //
+				() -> q1.apply(this), //
 				() -> mean.apply(this), //
-				() -> Q3.apply(this));
+				() -> q3.apply(this));
 	}
 
-	static Statistics create(double Q1, double mean, double Q3) {
-		return create(() -> Q1, () -> mean, () -> Q3);
+	static Statistics create(double q1, double mean, double q3) {
+		return create(() -> q1, () -> mean, () -> q3);
 	}
 
 	default Statistics snapshot() {
-		return create(Q1(), mean(), Q3());
+		return create(q1(), mean(), q3());
 	}
 
 	interface Factor {
@@ -74,8 +74,8 @@ public interface Statistics {
 
 	default Statistics factor(Factor factor) {
 		return transform(//
-				stat -> factor.get(Type.Q1) * stat.Q1(), //
+				stat -> factor.get(Type.Q1) * stat.q1(), //
 				stat -> factor.get(Type.MEAN) * stat.mean(), //
-				stat -> factor.get(Type.Q3) * stat.Q3());
+				stat -> factor.get(Type.Q3) * stat.q3());
 	}
 }

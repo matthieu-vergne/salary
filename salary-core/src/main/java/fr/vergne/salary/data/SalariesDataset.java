@@ -21,7 +21,7 @@ public interface SalariesDataset extends Dataset<Collection<Double>> {
 		SalariesDataset dataset = this;
 		return new Statistics() {
 			@Override
-			public double Q1() {
+			public double q1() {
 				double approximatedIndex = (double) (salariesCount() + 3) / 4.0;
 				int index = (int) Math.rint(approximatedIndex);
 				List<Double> sortedSalaries = salariesStream().sorted().limit(index + 2).collect(toList());
@@ -41,7 +41,7 @@ public interface SalariesDataset extends Dataset<Collection<Double>> {
 			}
 
 			@Override
-			public double Q3() {
+			public double q3() {
 				double approximatedIndex = (double) (salariesCount() + 3) / 4.0;
 				int index = (int) Math.rint(approximatedIndex);
 				List<Double> sortedSalaries = salariesStream().sorted(Comparator.reverseOrder()).limit(index + 2)

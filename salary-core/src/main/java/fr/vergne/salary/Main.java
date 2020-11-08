@@ -2,8 +2,11 @@ package fr.vergne.salary;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import fr.vergne.salary.chart.GraphicalReport;
 import fr.vergne.salary.data.Period;
 import fr.vergne.salary.data.Profile;
 import fr.vergne.salary.data.SalariesDataset;
@@ -16,15 +19,21 @@ import fr.vergne.salary.model.RandomFactory;
 
 public class Main {
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws InterruptedException {
+
 		System.out.println("Create reference data");
 		StatisticsDataset referenceDataset = createReferenceDataset();
-		// TODO Visualize reference dataset
+		int chartWidth = 500;
+		int chartHeight = 500;
+		int transitionWidth = 50;
+		GraphicalReport report = GraphicalReport.create(chartWidth, chartHeight, transitionWidth);
+		report.setReferenceStatistics(referenceDataset);
 
 		System.out.println("Create model");
 		double[] factor = { 1 };
 		StatisticsDataset modelDataset = referenceDataset.splitProfiles().factor((profile, statType) -> factor[0]);
-		// TODO Visualize model dataset
+		report.setModelStatistics(modelDataset);
+
 		ModelFactory modelGenerator = new ModelFactory(new RandomFactory(0));
 		Model model = modelGenerator.createDataBasedModel(modelDataset);
 
@@ -37,10 +46,19 @@ public class Main {
 		// TODO Parametered model on logarithmic curves
 
 		System.out.println("Create salaries from model");
-		int salariesPerProfile = 100000;
+		int salariesPerProfile = 10000;
 		Set<Profile> modelProfiles = modelDataset.toMap().keySet();
 		SalariesDataset salariesDataset = model.createSalariesDataset(modelProfiles, salariesPerProfile);
-		// TODO Visualize salaries dataset
+		report.setModelBasedSalaries(salariesDataset);
+
+		System.out.println("Compute model statistics on reference profiles");
+		StatisticsDataset modelDatasetOnReferenceProfiles = computeStatisticsForProfiles(salariesDataset,
+				referenceDataset.toMap().keySet());
+		report.setSalariesBasedStatistics(modelDatasetOnReferenceProfiles);
+		
+		// TODO Add error rates to report
+		if (1 == 1)// TODO remove
+			return;
 
 		System.out.println("Compute model error from model data:");
 		Map<Type, double[]> errorBoundsMap = new LinkedHashMap<>();
@@ -77,6 +95,18 @@ public class Main {
 		System.out.println("Done");
 	}
 
+	private static StatisticsDataset computeStatisticsForProfiles(SalariesDataset salariesDataset,
+			Set<Profile> profiles) {
+		return StatisticsDataset.fromMap(profiles.stream()//
+				.map(profile -> {
+					Statistics statistics = salariesDataset.filterOnProfile(profile).toStatistics();
+					return Map.entry(profile, statistics);
+				})//
+				.collect(Collectors.toMap(//
+						Entry<Profile, Statistics>::getKey, //
+						Entry<Profile, Statistics>::getValue)));
+	}
+
 	private static void displayGlobalErrorBounds(Map<Type, double[]> errorBoundsMap) {
 		errorBoundsMap.entrySet().forEach(entry -> {
 			Type type = entry.getKey();
@@ -89,7 +119,8 @@ public class Main {
 		return 100 * Math.abs(target - actual) / target;
 	}
 
-	private static void compareToTarget(SalariesDataset actualDataset, StatisticsDataset targetDataset, DiffConsumer consumer) {
+	private static void compareToTarget(SalariesDataset actualDataset, StatisticsDataset targetDataset,
+			DiffConsumer consumer) {
 		Map<Profile, Statistics> targetData = targetDataset.toMap();
 
 		targetData.keySet().stream()//
