@@ -1,5 +1,7 @@
 package fr.vergne.salary;
 
+import static fr.vergne.salary.error.ErrorBounds.*;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -13,29 +15,55 @@ import fr.vergne.salary.data.SalariesDataset;
 import fr.vergne.salary.data.Statistics;
 import fr.vergne.salary.data.Statistics.Type;
 import fr.vergne.salary.data.StatisticsDataset;
-import fr.vergne.salary.model.Model;
+import fr.vergne.salary.error.ErrorBounds;
 import fr.vergne.salary.model.ModelFactory;
 import fr.vergne.salary.model.RandomFactory;
 
 public class Main {
 
 	public static void main(String[] args) throws InterruptedException {
-
-		System.out.println("Create reference data");
-		StatisticsDataset referenceDataset = createReferenceDataset();
 		int chartWidth = 500;
 		int chartHeight = 500;
 		int transitionWidth = 50;
 		GraphicalReport report = GraphicalReport.create(chartWidth, chartHeight, transitionWidth);
-		report.setReferenceStatistics(referenceDataset);
 
-		System.out.println("Create model");
+		System.out.println("Create reference statistics");
+		StatisticsDataset referenceStatistics = createReferenceDataset();
+		Set<Profile> referenceProfiles = referenceStatistics.toMap().keySet();
+		report.setReferenceStatistics(referenceStatistics);
+
+		System.out.println("Create model statistics");
 		double[] factor = { 1 };
-		StatisticsDataset modelDataset = referenceDataset.splitProfiles().factor((profile, statType) -> factor[0]);
-		report.setModelStatistics(modelDataset);
+		StatisticsDataset modelStatistics = referenceStatistics.splitProfiles()
+				.factor((profile, statType) -> factor[0]);
+		report.setModelStatistics(modelStatistics);
 
-		ModelFactory modelGenerator = new ModelFactory(new RandomFactory(0));
-		Model model = modelGenerator.createDataBasedModel(modelDataset);
+		System.out.println("Create salaries from model statistics");
+		Set<Profile> modelProfiles = modelStatistics.toMap().keySet();
+		int salariesPerProfileInData = 10000;
+		SalariesDataset modelBasedSalaries = new ModelFactory(new RandomFactory(0))//
+				.createDataBasedModel(modelStatistics)//
+				.createSalariesDataset(modelProfiles, salariesPerProfileInData);
+		int salariesPerProfileInReport = 10;
+		report.setModelBasedSalaries(modelBasedSalaries, salariesPerProfileInReport);
+
+		System.out.println("Compute salaries statistics on reference profiles");
+		StatisticsDataset salariesStatistics = computeSalariesStatisticsForProfiles(modelBasedSalaries,
+				referenceProfiles);
+		report.setSalariesBasedStatistics(salariesStatistics);
+
+		System.out.println("Compare salaries statistics to reference statistics");
+		ErrorBounds q1ErrorBounds = ErrorBounds.createLargest();
+		ErrorBounds meanErrorBounds = ErrorBounds.createLargest();
+		ErrorBounds q3ErrorBounds = ErrorBounds.createLargest();
+		DiffConsumer consumer = (profile, type, actual, target) -> {
+			select(type, q1ErrorBounds, meanErrorBounds, q3ErrorBounds)//
+					.refine(computeError(actual, target));
+		};
+		compareStatistics(salariesStatistics, referenceStatistics, consumer);
+		report.setErrorBounds(q1ErrorBounds, meanErrorBounds, q3ErrorBounds);
+
+		System.out.println("Done");
 
 		// TODO Downhill algorithm to converge factor from 0 to 1
 		// TODO Increase to 1 parameter per type
@@ -44,58 +72,38 @@ public class Main {
 		// TODO Parametered model on linear curves
 		// TODO Parametered model on exponential curves
 		// TODO Parametered model on logarithmic curves
-
-		System.out.println("Create salaries from model");
-		int salariesPerProfile = 10000;
-		Set<Profile> modelProfiles = modelDataset.toMap().keySet();
-		SalariesDataset salariesDataset = model.createSalariesDataset(modelProfiles, salariesPerProfile);
-		report.setModelBasedSalaries(salariesDataset);
-
-		System.out.println("Compute model statistics on reference profiles");
-		StatisticsDataset modelDatasetOnReferenceProfiles = computeStatisticsForProfiles(salariesDataset,
-				referenceDataset.toMap().keySet());
-		report.setSalariesBasedStatistics(modelDatasetOnReferenceProfiles);
-		
-		// TODO Add error rates to report
-		if (1 == 1)// TODO remove
-			return;
-
-		System.out.println("Compute model error from model data:");
-		Map<Type, double[]> errorBoundsMap = new LinkedHashMap<>();
-		errorBoundsMap.put(Type.Q1, new double[] { 1, 0 });
-		errorBoundsMap.put(Type.MEAN, new double[] { 1, 0 });
-		errorBoundsMap.put(Type.Q3, new double[] { 1, 0 });
-		DiffConsumer updateErrorBounds = (profile, type, actual, target) -> {
-			double[] errorBounds = errorBoundsMap.get(type);
-			double error = computeError(actual, target);
-			errorBounds[0] = Math.min(errorBounds[0], error);
-			errorBounds[1] = Math.max(errorBounds[1], error);
-		};
-		compareToTarget(salariesDataset, modelDataset, updateErrorBounds);
-		displayGlobalErrorBounds(errorBoundsMap);
-
-		System.out.println("Compute model error from reference data:");
-		errorBoundsMap.put(Type.Q1, new double[] { 1, 0 });
-		errorBoundsMap.put(Type.MEAN, new double[] { 1, 0 });
-		errorBoundsMap.put(Type.Q3, new double[] { 1, 0 });
-		@SuppressWarnings("unused")
-		DiffConsumer displayDetails = (profile, type, actual, target) -> {
-			if (type.equals(Type.Q1)) {
-				System.out.println(profile);
-			}
-			double error = computeError(actual, target);
-			System.out.println(String.format("  Δ%s=|%.2f-%.2f|=%.2f%%", type, target, actual, error));
-		};
-		compareToTarget(salariesDataset, referenceDataset, (profile, type, actual, target) -> {
-			updateErrorBounds.consume(profile, type, actual, target);
-			// displayDetails.consume(profile, type, actual, target);
-		});
-		displayGlobalErrorBounds(errorBoundsMap);
-
-		System.out.println("Done");
 	}
 
-	private static StatisticsDataset computeStatisticsForProfiles(SalariesDataset salariesDataset,
+	private static ErrorBounds select(Type type, ErrorBounds q1ErrorBounds, ErrorBounds meanErrorBounds,
+			ErrorBounds q3ErrorBounds) {
+		switch (type) {
+		case Q1:
+			return q1ErrorBounds;
+		case MEAN:
+			return meanErrorBounds;
+		case Q3:
+			return q3ErrorBounds;
+		default:
+			throw new RuntimeException("Unmanaged type: " + type);
+		}
+	}
+
+	private static void compareStatistics(StatisticsDataset actualDataset, StatisticsDataset targetDataset,
+			DiffConsumer consumer) {
+		Map<Profile, Statistics> targetData = targetDataset.toMap();
+		Map<Profile, Statistics> actualData = actualDataset.toMap();
+		targetData.keySet().stream()//
+				.sorted(Profile.bySeniorityThenExperience())//
+				.forEach(profile -> {
+					Statistics actualStats = actualData.get(profile);
+					Statistics targetStats = targetData.get(profile);
+					for (Type type : Type.values()) {
+						consumer.consume(profile, type, actualStats, targetStats);
+					}
+				});
+	}
+
+	private static StatisticsDataset computeSalariesStatisticsForProfiles(SalariesDataset salariesDataset,
 			Set<Profile> profiles) {
 		return StatisticsDataset.fromMap(profiles.stream()//
 				.map(profile -> {
@@ -105,34 +113,6 @@ public class Main {
 				.collect(Collectors.toMap(//
 						Entry<Profile, Statistics>::getKey, //
 						Entry<Profile, Statistics>::getValue)));
-	}
-
-	private static void displayGlobalErrorBounds(Map<Type, double[]> errorBoundsMap) {
-		errorBoundsMap.entrySet().forEach(entry -> {
-			Type type = entry.getKey();
-			double[] errorBounds = entry.getValue();
-			System.out.println(String.format("  Δ%s ∈ [%.2f%% ; %.2f%%]", type, errorBounds[0], errorBounds[1]));
-		});
-	}
-
-	private static double computeError(double actual, double target) {
-		return 100 * Math.abs(target - actual) / target;
-	}
-
-	private static void compareToTarget(SalariesDataset actualDataset, StatisticsDataset targetDataset,
-			DiffConsumer consumer) {
-		Map<Profile, Statistics> targetData = targetDataset.toMap();
-
-		targetData.keySet().stream()//
-				.sorted(Profile.bySeniorityThenExperience())//
-				.forEach(profile -> {
-					Statistics actualStats = actualDataset.filterOnProfile(profile).toStatistics();
-					Statistics targetStats = targetData.get(profile);
-					for (Type type : Type.values()) {
-						consumer.consume(profile, type, actualStats, targetStats);
-					}
-				});
-		;
 	}
 
 	interface DiffConsumer {
@@ -163,5 +143,4 @@ public class Main {
 				Profile.create(sen_2_5, exp_6_9__), Statistics.create(35.555, 40.551, 46.152), //
 				Profile.create(sen_2_5, exp_10_14), Statistics.create(40.107, 45.755, 52.090)));
 	}
-
 }

@@ -1,12 +1,18 @@
 package fr.vergne.salary.chart;
 
+import static java.awt.event.InputEvent.*;
+import static java.awt.event.KeyEvent.*;
 import static java.util.stream.Collectors.*;
+import static javax.swing.KeyStroke.*;
 
+import java.awt.Component;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.LayoutManager;
+import java.awt.event.ActionEvent;
 import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
@@ -14,15 +20,19 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import javax.imageio.ImageIO;
+import javax.swing.AbstractAction;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.WindowConstants;
 
@@ -39,6 +49,7 @@ import fr.vergne.salary.data.Profile;
 import fr.vergne.salary.data.SalariesDataset;
 import fr.vergne.salary.data.Statistics;
 import fr.vergne.salary.data.StatisticsDataset;
+import fr.vergne.salary.error.ErrorBounds;
 
 public class JFreeChartReport implements GraphicalReport {
 
@@ -80,10 +91,9 @@ public class JFreeChartReport implements GraphicalReport {
 	}
 
 	@Override
-	public void setModelBasedSalaries(SalariesDataset dataset) {
-		int salariesPointsLimit = 10;
-		String title = "Model-generated data (" + salariesPointsLimit + "/case)";
-		JFreeChart chart = createPointsPlot(dataset, title, salariesPointsLimit);
+	public void setModelBasedSalaries(SalariesDataset dataset, int salariesLimitPerProfile) {
+		String title = "Model-generated data (" + salariesLimitPerProfile + "/case)";
+		JFreeChart chart = createPointsPlot(dataset, title, salariesLimitPerProfile);
 		saveTempImage(chart, title);
 		updateChart(modelSalariesPanel, chart);
 	}
@@ -94,6 +104,24 @@ public class JFreeChartReport implements GraphicalReport {
 		JFreeChart chart = createBoxPlot(dataset, title);
 		saveTempImage(chart, title);
 		updateChart(salariesStatsPanel, chart);
+	}
+
+	@Override
+	public void setErrorBounds(ErrorBounds q1, ErrorBounds mean, ErrorBounds q3) {
+		referenceComparisonLabel.setText("<html>"//
+				+ "<style type='text/css'>"//
+				+ "  td {"//
+				+ "    text-align: right;"//
+				+ "  }"//
+				+ "</style>"//
+				+ "<body>"//
+				+ "<table>"//
+				+ "<tr><td>ΔQ1</td><rd>∈</td><td>" + q1 + "</td></tr>"//
+				+ "<tr><td>Δmean</td><rd>∈</td><td>" + mean + "</td></tr>"//
+				+ "<tr><td>ΔQ3</td><rd>∈</td><td>" + q3 + "</td></tr>"//
+				+ "</table>"//
+				+ "</body>"//
+				+ "</html>");
 	}
 
 	private void createAndShowFrame() {
@@ -193,12 +221,57 @@ public class JFreeChartReport implements GraphicalReport {
 					constraints);
 
 			/***********
+			 * ACTIONS *
+			 ***********/
+
+			setKeyboardShortcut(frame, //
+					getKeyStroke(VK_S, CTRL_DOWN_MASK), //
+					event -> screenshot(frame));
+
+			/***********
 			 * DISPLAY *
 			 ***********/
 
 			frame.setVisible(true);
 
 		}).run();
+	}
+
+	private void setKeyboardShortcut(JFrame frame, KeyStroke keyStroke, Consumer<ActionEvent> actionConsumer) {
+		@SuppressWarnings("serial")
+		AbstractAction action = new AbstractAction() {
+
+			@Override
+			public void actionPerformed(ActionEvent event) {
+				actionConsumer.accept(event);
+			}
+		};
+		Object key = keyStroke;
+		frame.getRootPane().getActionMap().put(key, action);
+		frame.getRootPane().getInputMap().put(keyStroke, key);
+	}
+
+	private void screenshot(JFrame frame) {
+		Component component = frame.getContentPane();
+		BufferedImage image = new BufferedImage(component.getWidth(), component.getHeight(),
+				BufferedImage.TYPE_INT_RGB);
+		// call the Component's paint method, using
+		// the Graphics object of the image.
+		component.paint(image.getGraphics()); // alternately use .printAll(..)
+		File file;
+		String name = "frame".replaceAll("[^a-zA-Z0-9]+", "-");
+		try {
+			file = File.createTempFile(name + "_", ".png");
+		} catch (IOException cause) {
+			throw new RuntimeException(cause);
+		}
+		System.out.println("Save frame in " + file);
+		try {
+			ImageIO.write(image, "png", file);
+		} catch (IOException cause) {
+			// TODO Auto-generated catch block
+			cause.printStackTrace();
+		}
 	}
 
 	private JPanel createTransitionPanel(Supplier<LayoutManager> layout, JLabel firstLabel, JLabel secondLabel) {
@@ -282,11 +355,12 @@ public class JFreeChartReport implements GraphicalReport {
 		return chart;
 	}
 
-	private JFreeChart createPointsPlot(SalariesDataset salariesDataset, String chartTitle, int salariesPointsLimit) {
+	private JFreeChart createPointsPlot(SalariesDataset salariesDataset, String chartTitle,
+			int salariesLimitPerProfile) {
 		DefaultXYDataset dataset = new DefaultXYDataset();
 		salariesDataset.toMap().entrySet().stream()//
 				.sorted(byExperience())// Sort currently not managed by JFreeChart
-				.map(toReducedSalariesSets(salariesPointsLimit))//
+				.map(toReducedSalariesSets(salariesLimitPerProfile))//
 				.map(toEntriesWithExperienceMovedFromKeyToValue())//
 				.collect(intoMapAggregatingExperiencesAndSalariesForEachSeniority())//
 				.entrySet().stream()//
@@ -351,11 +425,11 @@ public class JFreeChartReport implements GraphicalReport {
 	}
 
 	private Function<Entry<Profile, Collection<Double>>, Entry<Profile, Stream<Double>>> toReducedSalariesSets(
-			int salariesLimit) {
+			int salariesLimitPerProfile) {
 		return entry -> {
 			Profile profile = entry.getKey();
 			Collection<Double> salaries = entry.getValue();
-			return Map.entry(profile, salaries.stream().limit(salariesLimit));
+			return Map.entry(profile, salaries.stream().limit(salariesLimitPerProfile));
 		};
 	}
 
