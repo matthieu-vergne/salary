@@ -2,7 +2,6 @@ package fr.vergne.salary;
 
 import static fr.vergne.salary.error.ErrorBounds.*;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -22,10 +21,11 @@ import fr.vergne.salary.model.RandomFactory;
 public class Main {
 
 	public static void main(String[] args) throws InterruptedException {
+		String title = "Salary Analysis Charts";
 		int chartWidth = 500;
 		int chartHeight = 500;
 		int transitionWidth = 50;
-		GraphicalReport report = GraphicalReport.create(chartWidth, chartHeight, transitionWidth);
+		GraphicalReport report = GraphicalReport.create(title, chartWidth, chartHeight, transitionWidth);
 
 		System.out.println("Create reference statistics");
 		StatisticsDataset referenceStatistics = createReferenceDataset();

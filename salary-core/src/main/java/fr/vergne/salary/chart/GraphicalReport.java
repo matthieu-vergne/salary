@@ -13,8 +13,8 @@ public interface GraphicalReport {
 
 	void setSalariesBasedStatistics(StatisticsDataset modelDatasetOnReferenceProfiles);
 	
-	static GraphicalReport create(int chartWidth, int chartHeight, int transitionWidth) {
-		return new JFreeChartReport(chartWidth, chartHeight, transitionWidth);
+	static GraphicalReport create(String title, int chartWidth, int chartHeight, int transitionWidth) {
+		return new JFreeChartReport(title, chartWidth, chartHeight, transitionWidth);
 	}
 
 	void setErrorBounds(ErrorBounds q1, ErrorBounds mean, ErrorBounds q3);

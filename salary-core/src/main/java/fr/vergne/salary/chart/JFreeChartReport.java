@@ -67,11 +67,11 @@ public class JFreeChartReport implements GraphicalReport {
 	private final JLabel salariesToStatsLabel = createTransitionTextLabel("Stats");
 	private final JLabel referenceComparisonLabel = createTransitionTextLabel("Compare");
 
-	public JFreeChartReport(int chartWidth, int chartHeight, int transitionWidth) {
+	public JFreeChartReport(String title, int chartWidth, int chartHeight, int transitionWidth) {
 		this.chartWidth = chartWidth;
 		this.chartHeight = chartHeight;
 		this.transitionWidth = transitionWidth;
-		createAndShowFrame();
+		createAndShowFrame(title);
 	}
 
 	@Override
@@ -84,7 +84,7 @@ public class JFreeChartReport implements GraphicalReport {
 
 	@Override
 	public void setModelStatistics(StatisticsDataset dataset) {
-		String title = "Model";
+		String title = "Model Statistics";
 		JFreeChart chart = createBoxPlot(dataset, title);
 		saveTempImage(chart, title);
 		updateChart(modelStatsPanel, chart);
@@ -92,7 +92,7 @@ public class JFreeChartReport implements GraphicalReport {
 
 	@Override
 	public void setModelBasedSalaries(SalariesDataset dataset, int salariesLimitPerProfile) {
-		String title = "Model-generated data (" + salariesLimitPerProfile + "/case)";
+		String title = "Model-based Salaries (" + salariesLimitPerProfile + "/profile)";
 		JFreeChart chart = createPointsPlot(dataset, title, salariesLimitPerProfile);
 		saveTempImage(chart, title);
 		updateChart(modelSalariesPanel, chart);
@@ -100,7 +100,7 @@ public class JFreeChartReport implements GraphicalReport {
 
 	@Override
 	public void setSalariesBasedStatistics(StatisticsDataset dataset) {
-		String title = "Model-generated stats (all data)";
+		String title = "Salaries Statistics (all data)";
 		JFreeChart chart = createBoxPlot(dataset, title);
 		saveTempImage(chart, title);
 		updateChart(salariesStatsPanel, chart);
@@ -124,7 +124,7 @@ public class JFreeChartReport implements GraphicalReport {
 				+ "</html>");
 	}
 
-	private void createAndShowFrame() {
+	private void createAndShowFrame(String title) {
 		new Thread(() -> {
 			JFrame frame = new JFrame();
 
@@ -132,7 +132,7 @@ public class JFreeChartReport implements GraphicalReport {
 			 * GENERAL PROPERTIES *
 			 **********************/
 
-			frame.setTitle("Chart frame");
+			frame.setTitle(title);
 
 			int width = 2 * this.chartWidth;
 			int height = 2 * this.chartHeight;
@@ -226,7 +226,7 @@ public class JFreeChartReport implements GraphicalReport {
 
 			setKeyboardShortcut(frame, //
 					getKeyStroke(VK_S, CTRL_DOWN_MASK), //
-					event -> screenshot(frame));
+					event -> screenshot(frame, title));
 
 			/***********
 			 * DISPLAY *
@@ -251,7 +251,7 @@ public class JFreeChartReport implements GraphicalReport {
 		frame.getRootPane().getInputMap().put(keyStroke, key);
 	}
 
-	private void screenshot(JFrame frame) {
+	private void screenshot(JFrame frame, String title) {
 		Component component = frame.getContentPane();
 		BufferedImage image = new BufferedImage(component.getWidth(), component.getHeight(),
 				BufferedImage.TYPE_INT_RGB);
@@ -259,7 +259,7 @@ public class JFreeChartReport implements GraphicalReport {
 		// the Graphics object of the image.
 		component.paint(image.getGraphics()); // alternately use .printAll(..)
 		File file;
-		String name = "frame".replaceAll("[^a-zA-Z0-9]+", "-");
+		String name = title.replaceAll("[^a-zA-Z0-9]+", "-");
 		try {
 			file = File.createTempFile(name + "_", ".png");
 		} catch (IOException cause) {
