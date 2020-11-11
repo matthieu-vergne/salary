@@ -49,7 +49,7 @@ import fr.vergne.salary.data.Profile;
 import fr.vergne.salary.data.SalariesDataset;
 import fr.vergne.salary.data.Statistics;
 import fr.vergne.salary.data.StatisticsDataset;
-import fr.vergne.salary.error.ErrorBounds;
+import fr.vergne.salary.evaluation.ErrorBounds;
 
 public class JFreeChartReport implements GraphicalReport {
 

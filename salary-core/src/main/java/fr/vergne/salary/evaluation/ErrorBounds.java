@@ -1,4 +1,4 @@
-package fr.vergne.salary.error;
+package fr.vergne.salary.evaluation;
 
 public class ErrorBounds {
 	double min;
@@ -21,10 +21,6 @@ public class ErrorBounds {
 	@Override
 	public String toString() {
 		return String.format("[%.2f%% ; %.2f%%]", 100 * min, 100 * max);
-	}
-
-	public static double computeError(double actual, double target) {
-		return Math.abs(target - actual) / target;
 	}
 
 }
