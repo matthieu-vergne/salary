@@ -93,7 +93,8 @@ public class Main {
 							})));
 			return Model.create(params, name, dataset);
 		};
-		// FIXME generate salaries with non-centered gaussian
+		// FIXME generate salaries with non-symmetric gaussian
+		// https://en.wikipedia.org/wiki/Skew_normal_distribution
 		Function<Model<Parameters>, ErrorBounds> modelEvaluator = ModelEvaluator.create(//
 				referenceStatistics, //
 				randomSeed, //
