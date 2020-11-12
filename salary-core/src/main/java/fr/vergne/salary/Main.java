@@ -116,7 +116,7 @@ public class Main {
 				if (model == candidateModel) {
 					bestModel = candidateModel;
 					bestScore = candidateScore;
-					reportUpdater.selectBestModel(bestModel);
+					reportUpdater.updateReportModel(bestModel);
 				}
 				out.println(String.format("Best: %s (%s)", bestModel, bestScore));
 			}
@@ -196,7 +196,6 @@ public class Main {
 	static class ReportUpdater {
 
 		private final GraphicalReport report;
-		private Model<?> model;
 		private ReportPreparator preparator;
 
 		public ReportUpdater(GraphicalReport report) {
@@ -204,18 +203,13 @@ public class Main {
 		}
 
 		public ModelEvaluator.EvaluationListener createModelEvaluationListener(Model<?> model) {
-			this.model = model;
 			preparator = new ReportPreparator(report, model);
 			return preparator;
 		}
 
-		public void selectBestModel(Model<?> model) {
-			if (this.model == model) {
-				System.out.println("Update model in report");
-				preparator.applyModelToReport();
-			} else {
-				System.out.println("Keep model in report");
-			}
+		public void updateReportModel(Model<?> model) {
+			System.out.println("Update model in report");
+			preparator.applyModelToReport();
 		}
 	}
 }
