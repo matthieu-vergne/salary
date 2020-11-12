@@ -1,4 +1,4 @@
-package fr.vergne.salary.chart;
+package fr.vergne.salary.report;
 
 import static java.awt.event.InputEvent.*;
 import static java.awt.event.KeyEvent.*;
@@ -23,6 +23,7 @@ import java.util.Map.Entry;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -38,7 +39,6 @@ import javax.swing.WindowConstants;
 
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
-import org.jfree.chart.ChartUtils;
 import org.jfree.chart.JFreeChart;
 import org.jfree.data.statistics.BoxAndWhiskerItem;
 import org.jfree.data.statistics.DefaultBoxAndWhiskerCategoryDataset;
@@ -50,12 +50,18 @@ import fr.vergne.salary.data.SalariesDataset;
 import fr.vergne.salary.data.Statistics;
 import fr.vergne.salary.data.StatisticsDataset;
 import fr.vergne.salary.evaluation.ErrorBounds;
+import fr.vergne.salary.model.Model;
 
 public class JFreeChartReport implements GraphicalReport {
+
+	private static final String SCORE_KEY = "{score}";
 
 	private final int chartWidth;
 	private final int chartHeight;
 	private final int transitionWidth;
+	private final int salariesPerProfile;
+	
+	private final Function<Double, String> scoreFormatter;
 
 	private final JPanel referenceStatsPanel = createChartPanel();
 	private final JPanel modelStatsPanel = createChartPanel();
@@ -67,10 +73,14 @@ public class JFreeChartReport implements GraphicalReport {
 	private final JLabel salariesToStatsLabel = createTransitionTextLabel("Stats");
 	private final JLabel referenceComparisonLabel = createTransitionTextLabel("Compare");
 
-	public JFreeChartReport(String title, int chartWidth, int chartHeight, int transitionWidth) {
+
+	public JFreeChartReport(String title, int chartWidth, int chartHeight, int transitionWidth,
+			Function<Double, String> scoreFormatter, int salariesPerProfile) {
 		this.chartWidth = chartWidth;
 		this.chartHeight = chartHeight;
 		this.transitionWidth = transitionWidth;
+		this.salariesPerProfile = salariesPerProfile;
+		this.scoreFormatter = scoreFormatter;
 		createAndShowFrame(title);
 	}
 
@@ -78,23 +88,20 @@ public class JFreeChartReport implements GraphicalReport {
 	public void setReferenceStatistics(StatisticsDataset dataset) {
 		String title = "Reference";
 		JFreeChart chart = createBoxPlot(dataset, title);
-		saveTempImage(chart, title);
 		updateChart(referenceStatsPanel, chart);
 	}
 
 	@Override
-	public void setModelStatistics(StatisticsDataset dataset) {
-		String title = "Model Statistics";
-		JFreeChart chart = createBoxPlot(dataset, title);
-		saveTempImage(chart, title);
+	public void setModelStatistics(Model<?> model) {
+		String title = model.toString();
+		JFreeChart chart = createBoxPlot(model.dataset(), title);
 		updateChart(modelStatsPanel, chart);
 	}
 
 	@Override
-	public void setModelBasedSalaries(SalariesDataset dataset, int salariesLimitPerProfile) {
-		String title = "Model-based Salaries (" + salariesLimitPerProfile + "/profile)";
-		JFreeChart chart = createPointsPlot(dataset, title, salariesLimitPerProfile);
-		saveTempImage(chart, title);
+	public void setModelBasedSalaries(SalariesDataset dataset) {
+		String title = "Model-based Salaries (" + salariesPerProfile + "/profile)";
+		JFreeChart chart = createPointsPlot(dataset, title, salariesPerProfile);
 		updateChart(modelSalariesPanel, chart);
 	}
 
@@ -102,7 +109,6 @@ public class JFreeChartReport implements GraphicalReport {
 	public void setSalariesBasedStatistics(StatisticsDataset dataset) {
 		String title = "Salaries Statistics (all data)";
 		JFreeChart chart = createBoxPlot(dataset, title);
-		saveTempImage(chart, title);
 		updateChart(salariesStatsPanel, chart);
 	}
 
@@ -116,12 +122,20 @@ public class JFreeChartReport implements GraphicalReport {
 				+ "</style>"//
 				+ "<body>"//
 				+ "<table>"//
-				+ "<tr><td>ΔQ1</td><rd>∈</td><td>" + q1 + "</td></tr>"//
-				+ "<tr><td>Δmean</td><rd>∈</td><td>" + mean + "</td></tr>"//
-				+ "<tr><td>ΔQ3</td><rd>∈</td><td>" + q3 + "</td></tr>"//
+				+ "<tr><td>ΔQ1</td><rd>∈</td><td>" + q1 + "</td><td></td></tr>"//
+				+ "<tr><td>Δmean</td><rd>∈</td><td>" + mean + "</td><td>=" + SCORE_KEY + "</td></tr>"//
+				+ "<tr><td>ΔQ3</td><rd>∈</td><td>" + q3 + "</td><td></td></tr>"//
 				+ "</table>"//
 				+ "</body>"//
 				+ "</html>");
+	}
+
+	@Override
+	public void setScore(double score) {
+		String scoreText = scoreFormatter.apply(score);
+		String textTemplate = referenceComparisonLabel.getText();
+		String resolvedText = textTemplate.replaceAll(Pattern.quote(SCORE_KEY), scoreText);
+		referenceComparisonLabel.setText(resolvedText);
 	}
 
 	private void createAndShowFrame(String title) {
@@ -138,7 +152,7 @@ public class JFreeChartReport implements GraphicalReport {
 			int height = 2 * this.chartHeight;
 			frame.setBounds(0, 0, width, height);
 
-			frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+			frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 
 			frame.setLayout(new GridBagLayout());
 			/********************
@@ -226,7 +240,7 @@ public class JFreeChartReport implements GraphicalReport {
 
 			setKeyboardShortcut(frame, //
 					getKeyStroke(VK_S, CTRL_DOWN_MASK), //
-					event -> screenshot(frame, title));
+					event -> snapshot(frame, title));
 
 			/***********
 			 * DISPLAY *
@@ -251,7 +265,7 @@ public class JFreeChartReport implements GraphicalReport {
 		frame.getRootPane().getInputMap().put(keyStroke, key);
 	}
 
-	private void screenshot(JFrame frame, String title) {
+	private void snapshot(JFrame frame, String title) {
 		Component component = frame.getContentPane();
 		BufferedImage image = new BufferedImage(component.getWidth(), component.getHeight(),
 				BufferedImage.TYPE_INT_RGB);
@@ -437,22 +451,6 @@ public class JFreeChartReport implements GraphicalReport {
 		return Comparator.comparing(//
 				entry -> entry.getKey().experience(), //
 				Period.byStartThenStop());
-	}
-
-	private void saveTempImage(JFreeChart chart, String title) {
-		File file;
-		String name = title.replaceAll("[^a-zA-Z0-9]+", "-");
-		try {
-			file = File.createTempFile(name + "_", ".png");
-		} catch (IOException cause) {
-			throw new RuntimeException(cause);
-		}
-		System.out.println("Save chart in " + file);
-		try {
-			ChartUtils.saveChartAsPNG(file, chart, chartWidth, chartHeight);
-		} catch (IOException cause) {
-			throw new RuntimeException(cause);
-		}
 	}
 
 	private static <T> Comparable<T> createComparable(T value, Comparator<T> comparator) {

@@ -11,41 +11,59 @@ import fr.vergne.salary.data.Statistics;
 import fr.vergne.salary.data.Statistics.Type;
 import fr.vergne.salary.data.StatisticsDataset;
 import fr.vergne.salary.model.Model;
-import fr.vergne.salary.model.ModelFactory;
-import fr.vergne.salary.model.RandomFactory;
+import fr.vergne.salary.salary.SalaryEstimator;
+import fr.vergne.salary.salary.SalaryEstimatorFactory;
 
 public interface ModelEvaluator {
-	ModelEvaluation evaluate(StatisticsDataset modelStatistics);
+	double evaluate(Model<?> model);
 
-	public static ModelEvaluator create(StatisticsDataset referenceStatistics, int salariesPerProfile) {
+	public interface EvaluationListenerFactory {
+
+		EvaluationListener create(Model<?> model);
+
+	}
+
+	public interface EvaluationListener {
+		void salariesCreated(SalariesDataset modelBasedSalaries);
+
+		void salariesStatisticsMeasured(StatisticsDataset salariesStatistics);
+
+		void evaluate(Profile profile, Type type, double actual, double target, double error);
+
+		void modelEvaluated(double score);
+	}
+
+	public static ModelEvaluator create(StatisticsDataset referenceStatistics, int randomSeed, int salariesPerProfile,
+			EvaluationListenerFactory listenerFactory) {
+		SalaryEstimatorFactory salaryEstimatorFactory = new SalaryEstimatorFactory(randomSeed);
 		return new ModelEvaluator() {
 
 			@Override
-			public ModelEvaluation evaluate(StatisticsDataset modelStatistics) {
-				System.out.println("  Create salaries from model statistics");
-				Set<Profile> modelProfiles = modelStatistics.toMap().keySet();
-				Model model = new ModelFactory(new RandomFactory(0))//
-						.createDataBasedModel(modelStatistics);
-				SalariesDataset modelBasedSalaries = model.createSalariesDataset(modelProfiles, salariesPerProfile);
+			public double evaluate(Model<?> model) {
+				EvaluationListener modelEvaluationListener = listenerFactory.create(model);
 
-				System.out.println("  Compute salaries statistics on reference profiles");
+				StatisticsDataset modelDataset = model.dataset();
+				Set<Profile> modelProfiles = modelDataset.toMap().keySet();
+				SalaryEstimator salaryEstimator = salaryEstimatorFactory.createFromStatistics(modelDataset);
+				SalariesDataset modelBasedSalaries = salaryEstimator.createSalariesDataset(modelProfiles,
+						salariesPerProfile);
+				modelEvaluationListener.salariesCreated(modelBasedSalaries);
+
 				Set<Profile> referenceProfiles = referenceStatistics.toMap().keySet();
-				StatisticsDataset salariesStatistics = computeSalariesStatisticsForProfiles(modelBasedSalaries,
-						referenceProfiles);
+				StatisticsDataset salariesStatistics = measureSalariesStatistics(modelBasedSalaries, referenceProfiles);
+				modelEvaluationListener.salariesStatisticsMeasured(salariesStatistics);
 
-				System.out.println("  Compare salaries statistics to reference statistics");
-				ErrorBounds q1ErrorBounds = ErrorBounds.createLargest();
-				ErrorBounds meanErrorBounds = ErrorBounds.createLargest();
-				ErrorBounds q3ErrorBounds = ErrorBounds.createLargest();
+				double[] maxError = { Double.NEGATIVE_INFINITY };
 				DiffConsumer consumer = (profile, type, actual, target) -> {
-					select(type, q1ErrorBounds, meanErrorBounds, q3ErrorBounds)//
-							.refine(computeError(actual, target));
+					double error = computeError(actual, target);
+					maxError[0] = Math.max(error, maxError[0]);
+					modelEvaluationListener.evaluate(profile, type, actual, target, error);
 				};
 				compareStatistics(salariesStatistics, referenceStatistics, consumer);
+				double score = maxError[0];
+				modelEvaluationListener.modelEvaluated(score);
 
-				return ModelEvaluation.create(//
-						modelBasedSalaries, salariesStatistics, //
-						q1ErrorBounds, meanErrorBounds, q3ErrorBounds);
+				return score;
 			}
 
 			private double computeError(double actual, double target) {
@@ -67,21 +85,7 @@ public interface ModelEvaluator {
 						});
 			}
 
-			private ErrorBounds select(Type type, ErrorBounds q1ErrorBounds, ErrorBounds meanErrorBounds,
-					ErrorBounds q3ErrorBounds) {
-				switch (type) {
-				case Q1:
-					return q1ErrorBounds;
-				case MEAN:
-					return meanErrorBounds;
-				case Q3:
-					return q3ErrorBounds;
-				default:
-					throw new RuntimeException("Unmanaged type: " + type);
-				}
-			}
-
-			private StatisticsDataset computeSalariesStatisticsForProfiles(SalariesDataset salariesDataset,
+			private StatisticsDataset measureSalariesStatistics(SalariesDataset salariesDataset,
 					Set<Profile> profiles) {
 				return StatisticsDataset.fromMap(profiles.stream()//
 						.map(profile -> {

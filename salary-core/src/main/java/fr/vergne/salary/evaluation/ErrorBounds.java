@@ -1,8 +1,10 @@
 package fr.vergne.salary.evaluation;
 
+import static java.lang.Math.*;
+
 public class ErrorBounds {
-	double min;
-	double max;
+	final double min;
+	final double max;
 
 	private ErrorBounds(double min, double max) {
 		this.min = min;
@@ -13,9 +15,8 @@ public class ErrorBounds {
 		return new ErrorBounds(Double.POSITIVE_INFINITY, 0);
 	}
 
-	public void refine(double error) {
-		min = Math.min(min, error);
-		max = Math.max(max, error);
+	public ErrorBounds refine(double error) {
+		return new ErrorBounds(min(min, error), max(max, error));
 	}
 
 	@Override

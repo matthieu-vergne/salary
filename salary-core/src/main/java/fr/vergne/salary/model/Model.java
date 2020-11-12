@@ -1,23 +1,29 @@
 package fr.vergne.salary.model;
 
-import static java.util.stream.Collectors.*;
+import fr.vergne.salary.data.StatisticsDataset;
 
-import java.util.Set;
-import java.util.stream.IntStream;
+public interface Model<Parameter> {
+	Parameter parameter();
 
-import fr.vergne.salary.data.Profile;
-import fr.vergne.salary.data.SalariesDataset;
+	StatisticsDataset dataset();
 
-public interface Model {
-	double estimateSalary(Profile profile);
+	static Model<Double> create(Double parameter, String name, StatisticsDataset dataset) {
+		return new Model<Double>() {
 
-	default SalariesDataset createSalariesDataset(Set<Profile> profiles, int salariesPerProfile) {
-		return SalariesDataset.fromMap(profiles.stream()//
-				.sorted(Profile.bySeniorityThenExperience())// Order to generate same results with same random seed
-				.collect(toMap(//
-						profile -> profile, //
-						profile -> IntStream.range(0, salariesPerProfile)//
-								.mapToObj(i -> estimateSalary(profile))//
-								.collect(toList()))));
+			@Override
+			public Double parameter() {
+				return parameter;
+			}
+
+			@Override
+			public StatisticsDataset dataset() {
+				return dataset;
+			}
+			
+			@Override
+			public String toString() {
+				return name;
+			}
+		};
 	}
 }

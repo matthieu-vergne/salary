@@ -1,4 +1,4 @@
-package fr.vergne.salary.model;
+package fr.vergne.salary.salary;
 
 import fr.vergne.salary.data.Statistics;
 
