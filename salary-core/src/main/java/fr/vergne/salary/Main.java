@@ -67,12 +67,10 @@ public class Main {
 					params.addGlobalIntercept(delta) //
 			)//
 				// Filter incoherent variants
-					.filter(p -> 0 < p.q1().start())//
-					.filter(p -> p.q1().start() < p.mean().start())//
-					.filter(p -> p.mean().start() < p.q3().start())//
-					.filter(p -> 0 < p.q1().end())//
-					.filter(p -> p.q1().end() < p.mean().end())//
-					.filter(p -> p.mean().end() < p.q3().end())//
+					.filter(p -> p.q1().start() >= 0)//
+					.filter(p -> p.q1().start() < p.q3().start())//
+					.filter(p -> p.q1().end() >= 0)//
+					.filter(p -> p.q1().end() < p.q3().end())//
 					.collect(Collectors.toList());
 			return candidates.isEmpty() ? params : //
 			candidates.get(rand.nextInt(candidates.size()));
