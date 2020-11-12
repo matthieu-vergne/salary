@@ -14,33 +14,33 @@ import fr.vergne.salary.model.Model;
 import fr.vergne.salary.salary.SalaryEstimator;
 import fr.vergne.salary.salary.SalaryEstimatorFactory;
 
-public interface ModelEvaluator {
-	double evaluate(Model<?> model);
+public interface ModelEvaluator<S> {
+	S evaluate(Model<?> model);
 
-	public interface EvaluationListenerFactory {
+	public interface EvaluationListenerFactory<S> {
 
-		EvaluationListener create(Model<?> model);
+		EvaluationListener<S> create(Model<?> model);
 
 	}
 
-	public interface EvaluationListener {
+	public interface EvaluationListener<S> {
 		void salariesCreated(SalariesDataset modelBasedSalaries);
 
 		void salariesStatisticsMeasured(StatisticsDataset salariesStatistics);
 
 		void evaluate(Profile profile, Type type, double actual, double target, double error);
 
-		void modelEvaluated(double score);
+		void modelEvaluated(S score);
 	}
 
-	public static ModelEvaluator create(StatisticsDataset referenceStatistics, int randomSeed, int salariesPerProfile,
-			EvaluationListenerFactory listenerFactory) {
+	public static ModelEvaluator<ErrorBounds> create(StatisticsDataset referenceStatistics, int randomSeed, int salariesPerProfile,
+			EvaluationListenerFactory<ErrorBounds> listenerFactory) {
 		SalaryEstimatorFactory salaryEstimatorFactory = new SalaryEstimatorFactory(randomSeed);
-		return new ModelEvaluator() {
+		return new ModelEvaluator<ErrorBounds>() {
 
 			@Override
-			public double evaluate(Model<?> model) {
-				EvaluationListener modelEvaluationListener = listenerFactory.create(model);
+			public ErrorBounds evaluate(Model<?> model) {
+				EvaluationListener<ErrorBounds> modelEvaluationListener = listenerFactory.create(model);
 
 				StatisticsDataset modelDataset = model.dataset();
 				Set<Profile> modelProfiles = modelDataset.toMap().keySet();
@@ -53,14 +53,14 @@ public interface ModelEvaluator {
 				StatisticsDataset salariesStatistics = measureSalariesStatistics(modelBasedSalaries, referenceProfiles);
 				modelEvaluationListener.salariesStatisticsMeasured(salariesStatistics);
 
-				double[] maxError = { Double.NEGATIVE_INFINITY };
+				ErrorBounds[] errorBounds = {ErrorBounds.createLargest()};
 				DiffConsumer consumer = (profile, type, actual, target) -> {
 					double error = computeError(actual, target);
-					maxError[0] = Math.max(error, maxError[0]);
+					errorBounds[0] = errorBounds[0].refine(error);
 					modelEvaluationListener.evaluate(profile, type, actual, target, error);
 				};
 				compareStatistics(salariesStatistics, referenceStatistics, consumer);
-				double score = maxError[0];
+				ErrorBounds score = errorBounds[0];
 				modelEvaluationListener.modelEvaluated(score);
 
 				return score;

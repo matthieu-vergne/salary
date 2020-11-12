@@ -3,10 +3,12 @@ package fr.vergne.salary;
 import java.io.PrintStream;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import fr.vergne.salary.SearchAlgorithm.IterationListener;
@@ -28,16 +30,16 @@ public class Main {
 		int chartWidth = 500;
 		int chartHeight = 500;
 		int transitionWidth = 50;
-		int salariesPerProfileInEvaluation = 10000;
+		int salariesPerProfileInEvaluation = 1000;
 		int salariesPerProfileInReport = 10;
 		int randomSeed = 0;
-		Function<Double, String> scoreFormatter = score -> String.format("%.2f%%", 100 * score);
+		Function<ErrorBounds, String> scoreFormatter = ErrorBounds::toString;
 
-		GraphicalReport report = GraphicalReport.create(//
+		GraphicalReport<ErrorBounds> report = GraphicalReport.create(//
 				reportTitle, //
 				chartWidth, chartHeight, transitionWidth, //
 				scoreFormatter, salariesPerProfileInReport);
-		ReportUpdater reportUpdater = new ReportUpdater(report);
+		ReportUpdater<ErrorBounds> reportUpdater = new ReportUpdater<>(report);
 
 		System.out.println("Create reference statistics");
 		StatisticsDataset referenceStatistics = createReferenceDataset();
@@ -46,24 +48,115 @@ public class Main {
 		Random rand = new Random(randomSeed);
 		// TODO Increase to 1 parameter per stat type
 		// TODO Increase to 1 parameter per profile & stat type
-		Supplier<Double> parameterGenerator = () -> 0.5;
-		Function<Double, Double> parameterAdapter = factor -> factor + (rand.nextDouble() - 0.5);
-		Function<Double, Model<Double>> modelFactory = factor -> {
-			String name = "Ref x" + factor;
-			StatisticsDataset dataset = referenceStatistics//
-					.splitProfiles()//
-					.factor((profile, statType) -> factor);
-			return Model.create(factor, name, dataset);
+
+		Supplier<Parameters> parameterGenerator = () -> Parameters.create(//
+				Affine.fromSlopeIntercept(1, 1), //
+				Affine.fromSlopeIntercept(1, 2), //
+				Affine.fromSlopeIntercept(1, 3)//
+		);
+		Function<Parameters, Parameters> parameterAdapter = params -> {
+			double delta = rand.nextDouble() - 0.5;
+			List<Parameters> candidates = Stream.of(//
+					// Variants
+					params.addQ1Start(delta), //
+					params.addQ1End(delta), //
+					params.addMeanStart(delta), //
+					params.addMeanEnd(delta), //
+					params.addQ3Start(delta), //
+					params.addQ3End(delta), //
+					params.addGlobalIntercept(delta) //
+			)//
+				// Filter incoherent variants
+					.filter(p -> 0 < p.q1().start())//
+					.filter(p -> p.q1().start() < p.mean().start())//
+					.filter(p -> p.mean().start() < p.q3().start())//
+					.filter(p -> 0 < p.q1().end())//
+					.filter(p -> p.q1().end() < p.mean().end())//
+					.filter(p -> p.mean().end() < p.q3().end())//
+					.collect(Collectors.toList());
+			return candidates.isEmpty() ? params : //
+			candidates.get(rand.nextInt(candidates.size()));
 		};
-		Function<Model<Double>, Double> modelEvaluator = ModelEvaluator.create(//
+		Function<Parameters, Model<Parameters>> modelFactory = params -> {
+			String name = "" + params;
+			StatisticsDataset dataset = StatisticsDataset.fromMap(referenceStatistics//
+					.splitProfiles()//
+					.toMap().keySet().stream()//
+					.collect(Collectors.toMap(//
+							profile -> profile, //
+							profile -> {
+								int exp = profile.experience().start();
+								return Statistics.create(//
+										params.q1().resolve(exp), //
+										params.mean().resolve(exp), //
+										params.q3().resolve(exp));
+							})));
+			return Model.create(params, name, dataset);
+		};
+		// FIXME generate salaries with non-centered gaussian
+		Function<Model<Parameters>, ErrorBounds> modelEvaluator = ModelEvaluator.create(//
 				referenceStatistics, //
 				randomSeed, //
 				salariesPerProfileInEvaluation, //
 				reportUpdater::createModelEvaluationListener)::evaluate;
-		Comparator<Double> scoreComparator = Comparator.<Double>reverseOrder();
+		Comparator<ErrorBounds> maxComparator = Comparator.comparing(ErrorBounds::max).reversed();
+		Comparator<ErrorBounds> minComparator = Comparator.comparing(ErrorBounds::min).reversed();
+		Comparator<ErrorBounds> avgComparator = (b1, b2) -> {
+			double avg1 = (b1.min() + b1.max()) / 2;
+			double avg2 = (b2.min() + b2.max()) / 2;
+			return (int) Math.signum(avg2 - avg1);
+		};
+		int[] count = { 0 };
+		Comparator<ErrorBounds> scoreComparator = new Comparator<ErrorBounds>() {
+			Comparator<ErrorBounds> delegate = maxComparator;
 
-		IterationListener<Double, Double> stepDisplayer = createStepDisplayer(scoreFormatter, System.out,
+			@Override
+			public int compare(ErrorBounds b1, ErrorBounds b2) {
+//				if (count[0] > 20) {
+//					delegate = delegate == maxComparator ? minComparator //
+//							: delegate == minComparator ? avgComparator //
+//									: maxComparator;
+//				}
+				delegate = maxComparator;
+				return delegate.compare(b1, b2);
+			}
+		};
+
+		IterationListener<Parameters, ErrorBounds> stepDisplayer = createStepDisplayer(scoreFormatter, System.out,
 				reportUpdater);
+		IterationListener<Parameters, ErrorBounds> failureCounter = new IterationListener<Parameters, ErrorBounds>() {
+
+			Model<Parameters> candidate;
+
+			@Override
+			public void startIteration() {
+				// Ignore
+			}
+
+			@Override
+			public void parameterGenerated(Parameters parameter) {
+				// Ignore
+			}
+
+			@Override
+			public void modelGenerated(Model<Parameters> model) {
+				candidate = model;
+			}
+
+			@Override
+			public void modelScored(Model<Parameters> model, ErrorBounds score) {
+				// Ignore
+			}
+
+			@Override
+			public void bestModelSelected(Model<Parameters> model) {
+				if (model == candidate) {
+					count[0] = 0;
+				} else {
+					count[0]++;
+				}
+			}
+		};
 
 		// TODO GA to converge parameters to reference
 		// TODO Parametered model on linear curves
@@ -74,14 +167,14 @@ public class Main {
 				modelFactory, //
 				modelEvaluator, //
 				scoreComparator, scoreFormatter, //
-				stepDisplayer);
+				List.of(stepDisplayer, failureCounter));
 		while (true) {// TODO Export loop control to report so we can dispose on close
 			algorithm.iterate();
 		}
 	}
 
 	private static <P, S> IterationListener<P, S> createStepDisplayer(Function<S, String> scoreFormatter,
-			PrintStream out, ReportUpdater reportUpdater) {
+			PrintStream out, ReportUpdater<S> reportUpdater) {
 		return new SearchAlgorithm.IterationListener<P, S>() {
 
 			Model<P> bestModel;
@@ -144,16 +237,16 @@ public class Main {
 				Profile.create(sen_2_5, exp_10_14), Statistics.create(40.107, 45.755, 52.090)));
 	}
 
-	static class ReportPreparator implements ModelEvaluator.EvaluationListener {
+	static class ReportPreparator<S> implements ModelEvaluator.EvaluationListener<S> {
 
-		private final GraphicalReport report;
+		private final GraphicalReport<S> report;
 		private final Model<?> model;
 		private SalariesDataset modelBasedSalaries;
 		private StatisticsDataset salariesStatistics;
 		private Map<Type, ErrorBounds> errorBounds = new HashMap<>();
-		private double score;
+		private S score;
 
-		public ReportPreparator(GraphicalReport report, Model<?> model) {
+		public ReportPreparator(GraphicalReport<S> report, Model<?> model) {
 			this.report = report;
 			this.model = model;
 			Stream.of(Type.values()).forEach(type -> {
@@ -177,7 +270,7 @@ public class Main {
 		}
 
 		@Override
-		public void modelEvaluated(double score) {
+		public void modelEvaluated(S score) {
 			this.score = score;
 		}
 
@@ -193,23 +286,172 @@ public class Main {
 		}
 	};
 
-	static class ReportUpdater {
+	static class ReportUpdater<S> {
 
-		private final GraphicalReport report;
-		private ReportPreparator preparator;
+		private final GraphicalReport<S> report;
+		private ReportPreparator<S> preparator;
 
-		public ReportUpdater(GraphicalReport report) {
+		public ReportUpdater(GraphicalReport<S> report) {
 			this.report = report;
 		}
 
-		public ModelEvaluator.EvaluationListener createModelEvaluationListener(Model<?> model) {
-			preparator = new ReportPreparator(report, model);
+		public ModelEvaluator.EvaluationListener<S> createModelEvaluationListener(Model<?> model) {
+			preparator = new ReportPreparator<S>(report, model);
 			return preparator;
 		}
 
 		public void updateReportModel(Model<?> model) {
 			System.out.println("Update model in report");
 			preparator.applyModelToReport();
+		}
+	}
+
+	interface Affine {
+		final int expStart = 1;// TODO min experience
+		final int expEnd = 14;// TODO max experience
+
+		double slope();
+
+		double intercept();
+
+		default double start() {
+			return resolve(expStart);
+		}
+
+		default double end() {
+			return resolve(expEnd);
+		}
+
+		default double resolve(double x) {
+			return slope() * x + intercept();
+		}
+
+		default Affine addSlope(double delta) {
+			return fromSlopeIntercept(slope() + delta, intercept());
+		}
+
+		default Affine addIntercept(double delta) {
+			return fromSlopeIntercept(slope(), intercept() + delta);
+		}
+
+		default Affine movePoint(double delta, int xMove, int xFix) {
+			double normDelta = delta / (xFix - xMove);
+			return fromSlopeIntercept(//
+					this.slope() - normDelta, //
+					this.intercept() + xFix * normDelta);
+		}
+
+		default Affine addStart(double delta) {
+			return this.movePoint(delta, expStart, expEnd);
+		}
+
+		default Affine addEnd(double delta) {
+			return this.movePoint(delta, expEnd, expStart);
+		}
+
+		static Affine fromSlopeIntercept(double slope, double intercept) {
+			return new Affine() {
+				@Override
+				public double slope() {
+					return slope;
+				}
+
+				@Override
+				public double intercept() {
+					return intercept;
+				}
+
+				@Override
+				public String toString() {
+					return String.format("[%.1f;%.1f]", start(), end());
+				}
+			};
+		}
+	}
+
+	static interface Parameters {
+
+		Affine q1();
+
+		Affine mean();
+
+		Affine q3();
+
+		static Parameters create(Affine q1, Affine mean, Affine q3) {
+			return new Parameters() {
+
+				@Override
+				public Affine q1() {
+					return q1;
+				}
+
+				@Override
+				public Affine mean() {
+					return mean;
+				}
+
+				@Override
+				public Affine q3() {
+					return q3;
+				}
+
+				@Override
+				public String toString() {
+					return String.format("%s < %s < %s", q1, mean, q3);
+				}
+			};
+		}
+
+		default Parameters addGlobalIntercept(double delta) {
+			return this.addQ1Intercept(delta).addMeanIntercept(delta).addQ3Intercept(delta);
+		}
+
+		default Parameters addQ1Slope(double delta) {
+			return create(q1().addSlope(delta), mean(), q3());
+		}
+
+		default Parameters addQ1Intercept(double delta) {
+			return create(q1().addIntercept(delta), mean(), q3());
+		}
+
+		default Parameters addMeanSlope(double delta) {
+			return create(q1(), mean().addSlope(delta), q3());
+		}
+
+		default Parameters addMeanIntercept(double delta) {
+			return create(q1(), mean().addIntercept(delta), q3());
+		}
+
+		default Parameters addQ3Slope(double delta) {
+			return create(q1(), mean(), q3().addSlope(delta));
+		}
+
+		default Parameters addQ3Intercept(double delta) {
+			return create(q1(), mean(), q3().addIntercept(delta));
+		}
+
+		default Parameters addQ1Start(double delta) {
+			return create(q1().addStart(delta), mean(), q3());
+		}
+
+		default Parameters addQ1End(double delta) {
+			return create(q1().addEnd(delta), mean(), q3());
+		}
+
+		default Parameters addMeanStart(double delta) {
+			return create(q1(), mean().addStart(delta), q3());
+		}
+
+		default Parameters addMeanEnd(double delta) {
+			return create(q1(), mean().addEnd(delta), q3());
+		}
+
+		default Parameters addQ3Start(double delta) {
+			return create(q1(), mean(), q3().addStart(delta));
+		}
+
+		default Parameters addQ3End(double delta) {
+			return create(q1(), mean(), q3().addEnd(delta));
 		}
 	}
 }

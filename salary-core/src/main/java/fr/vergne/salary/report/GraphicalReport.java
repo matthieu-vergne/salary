@@ -7,7 +7,7 @@ import fr.vergne.salary.data.StatisticsDataset;
 import fr.vergne.salary.evaluation.ErrorBounds;
 import fr.vergne.salary.model.Model;
 
-public interface GraphicalReport {
+public interface GraphicalReport<S> {
 	void setReferenceStatistics(StatisticsDataset reference);
 
 	void setModelStatistics(Model<?> model);
@@ -16,18 +16,18 @@ public interface GraphicalReport {
 
 	void setSalariesBasedStatistics(StatisticsDataset modelOnReferenceProfiles);
 
-	static GraphicalReport create(//
+	void setErrorBounds(ErrorBounds q1, ErrorBounds mean, ErrorBounds q3);
+
+	void setScore(S score);
+
+	static <S> GraphicalReport<S> create(//
 			String title, //
 			int chartWidth, int chartHeight, //
 			int transitionWidth, //
-			Function<Double, String> scoreFormatter, //
+			Function<S, String> scoreFormatter, //
 			int salariesPerProfile) {
-		return new JFreeChartReport(title, chartWidth, chartHeight, transitionWidth, scoreFormatter,
+		return new JFreeChartReport<S>(title, chartWidth, chartHeight, transitionWidth, scoreFormatter,
 				salariesPerProfile);
 	}
-
-	void setErrorBounds(ErrorBounds q1, ErrorBounds mean, ErrorBounds q3);
-
-	void setScore(double score);
 
 }

@@ -7,11 +7,11 @@ public interface Model<Parameter> {
 
 	StatisticsDataset dataset();
 
-	static Model<Double> create(Double parameter, String name, StatisticsDataset dataset) {
-		return new Model<Double>() {
+	static <P> Model<P> create(P parameter, String name, StatisticsDataset dataset) {
+		return new Model<P>() {
 
 			@Override
-			public Double parameter() {
+			public P parameter() {
 				return parameter;
 			}
 

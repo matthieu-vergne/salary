@@ -1,6 +1,7 @@
 package fr.vergne.salary;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -34,11 +35,11 @@ public interface SearchAlgorithm {
 		void startIteration();
 
 		void parameterGenerated(P parameter);
-		
+
 		void modelGenerated(Model<P> model);
-		
+
 		void modelScored(Model<P> model, S score);
-		
+
 		void bestModelSelected(Model<P> model);
 	}
 
@@ -47,32 +48,32 @@ public interface SearchAlgorithm {
 			Function<P, Model<P>> modelFactory, //
 			Function<Model<P>, S> modelEvaluator, //
 			Comparator<S> scoreComparator, Function<S, String> scoreFormatter, //
-			IterationListener<P, S> listener) {
+			List<IterationListener<P, S>> listeners) {
 		return new SearchAlgorithm() {
 			Solution<P, S> best = null;
 			Comparator<Solution<P, S>> solutionComparator = Comparator.comparing(Solution::score, scoreComparator);
 
 			@Override
 			public void iterate() {
-				listener.startIteration();
+				listeners.forEach(listener -> listener.startIteration());
 				P parameter;
 				if (best == null) {
 					parameter = parameterGenerator.get();
 				} else {
 					parameter = parameterAdapter.apply(best.model().parameter());
 				}
-				listener.parameterGenerated(parameter);
+				listeners.forEach(listener -> listener.parameterGenerated(parameter));
 
 				Model<P> model = modelFactory.apply(parameter);
-				listener.modelGenerated(model);
+				listeners.forEach(listener -> listener.modelGenerated(model));
 
 				S score = modelEvaluator.apply(model);
-				listener.modelScored(model, score);
+				listeners.forEach(listener -> listener.modelScored(model, score));
 
 				Solution<P, S> candidate = Solution.create(model, score);
 				best = best == null ? candidate //
 						: solutionComparator.compare(candidate, best) > 0 ? candidate : best;
-				listener.bestModelSelected(best.model());
+				listeners.forEach(listener -> listener.bestModelSelected(best.model()));
 			}
 		};
 	}

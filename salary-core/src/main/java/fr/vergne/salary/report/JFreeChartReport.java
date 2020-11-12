@@ -52,7 +52,7 @@ import fr.vergne.salary.data.StatisticsDataset;
 import fr.vergne.salary.evaluation.ErrorBounds;
 import fr.vergne.salary.model.Model;
 
-public class JFreeChartReport implements GraphicalReport {
+public class JFreeChartReport<S> implements GraphicalReport<S> {
 
 	private static final String SCORE_KEY = "{score}";
 
@@ -60,8 +60,8 @@ public class JFreeChartReport implements GraphicalReport {
 	private final int chartHeight;
 	private final int transitionWidth;
 	private final int salariesPerProfile;
-	
-	private final Function<Double, String> scoreFormatter;
+
+	private final Function<S, String> scoreFormatter;
 
 	private final JPanel referenceStatsPanel = createChartPanel();
 	private final JPanel modelStatsPanel = createChartPanel();
@@ -73,9 +73,8 @@ public class JFreeChartReport implements GraphicalReport {
 	private final JLabel salariesToStatsLabel = createTransitionTextLabel("Stats");
 	private final JLabel referenceComparisonLabel = createTransitionTextLabel("Compare");
 
-
 	public JFreeChartReport(String title, int chartWidth, int chartHeight, int transitionWidth,
-			Function<Double, String> scoreFormatter, int salariesPerProfile) {
+			Function<S, String> scoreFormatter, int salariesPerProfile) {
 		this.chartWidth = chartWidth;
 		this.chartHeight = chartHeight;
 		this.transitionWidth = transitionWidth;
@@ -131,7 +130,7 @@ public class JFreeChartReport implements GraphicalReport {
 	}
 
 	@Override
-	public void setScore(double score) {
+	public void setScore(S score) {
 		String scoreText = scoreFormatter.apply(score);
 		String textTemplate = referenceComparisonLabel.getText();
 		String resolvedText = textTemplate.replaceAll(Pattern.quote(SCORE_KEY), scoreText);
