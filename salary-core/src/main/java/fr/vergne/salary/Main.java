@@ -49,14 +49,14 @@ public class Main {
 		// TODO Increase to 1 parameter per stat type
 		// TODO Increase to 1 parameter per profile & stat type
 
-		Supplier<Parameters> parameterGenerator = () -> Parameters.create(//
+		Supplier<StatsAffine> parameterGenerator = () -> StatsAffine.create(//
 				Affine.fromSlopeIntercept(1, 1), //
 				Affine.fromSlopeIntercept(1, 2), //
 				Affine.fromSlopeIntercept(1, 3)//
 		);
-		Function<Parameters, Parameters> parameterAdapter = params -> {
+		Function<StatsAffine, StatsAffine> parameterAdapter = params -> {
 			double delta = rand.nextDouble() - 0.5;
-			List<Parameters> candidates = Stream.of(//
+			List<StatsAffine> candidates = Stream.of(//
 					// Variants
 					params.addQ1Start(delta), //
 					params.addQ1End(delta), //
@@ -75,7 +75,7 @@ public class Main {
 			return candidates.isEmpty() ? params : //
 			candidates.get(rand.nextInt(candidates.size()));
 		};
-		Function<Parameters, Model<Parameters>> modelFactory = params -> {
+		Function<StatsAffine, Model<StatsAffine>> modelFactory = params -> {
 			String name = "" + params;
 			StatisticsDataset dataset = StatisticsDataset.fromMap(referenceStatistics//
 					.splitProfiles()//
@@ -93,69 +93,15 @@ public class Main {
 		};
 		// FIXME generate salaries with non-symmetric gaussian
 		// https://en.wikipedia.org/wiki/Skew_normal_distribution
-		Function<Model<Parameters>, ErrorBounds> modelEvaluator = ModelEvaluator.create(//
+		Function<Model<StatsAffine>, ErrorBounds> modelEvaluator = ModelEvaluator.create(//
 				referenceStatistics, //
 				randomSeed, //
 				salariesPerProfileInEvaluation, //
 				reportUpdater::createModelEvaluationListener)::evaluate;
 		Comparator<ErrorBounds> maxComparator = Comparator.comparing(ErrorBounds::max).reversed();
 		Comparator<ErrorBounds> minComparator = Comparator.comparing(ErrorBounds::min).reversed();
-		Comparator<ErrorBounds> avgComparator = (b1, b2) -> {
-			double avg1 = (b1.min() + b1.max()) / 2;
-			double avg2 = (b2.min() + b2.max()) / 2;
-			return (int) Math.signum(avg2 - avg1);
-		};
-		int[] count = { 0 };
-		Comparator<ErrorBounds> scoreComparator = new Comparator<ErrorBounds>() {
-			Comparator<ErrorBounds> delegate = maxComparator;
-
-			@Override
-			public int compare(ErrorBounds b1, ErrorBounds b2) {
-//				if (count[0] > 20) {
-//					delegate = delegate == maxComparator ? minComparator //
-//							: delegate == minComparator ? avgComparator //
-//									: maxComparator;
-//				}
-				delegate = maxComparator;
-				return delegate.compare(b1, b2);
-			}
-		};
-
-		IterationListener<Parameters, ErrorBounds> stepDisplayer = createStepDisplayer(scoreFormatter, System.out,
-				reportUpdater);
-		IterationListener<Parameters, ErrorBounds> failureCounter = new IterationListener<Parameters, ErrorBounds>() {
-
-			Model<Parameters> candidate;
-
-			@Override
-			public void startIteration() {
-				// Ignore
-			}
-
-			@Override
-			public void parameterGenerated(Parameters parameter) {
-				// Ignore
-			}
-
-			@Override
-			public void modelGenerated(Model<Parameters> model) {
-				candidate = model;
-			}
-
-			@Override
-			public void modelScored(Model<Parameters> model, ErrorBounds score) {
-				// Ignore
-			}
-
-			@Override
-			public void bestModelSelected(Model<Parameters> model) {
-				if (model == candidate) {
-					count[0] = 0;
-				} else {
-					count[0]++;
-				}
-			}
-		};
+		int[] failureCounter = { 0 };
+		Comparator<ErrorBounds> scoreComparator = maxComparator.thenComparing(minComparator);
 
 		// TODO GA to converge parameters to reference
 		// TODO Parametered model on linear curves
@@ -166,10 +112,57 @@ public class Main {
 				modelFactory, //
 				modelEvaluator, //
 				scoreComparator, scoreFormatter, //
-				List.of(stepDisplayer, failureCounter));
+				List.of(//
+						createStepDisplayer(scoreFormatter, System.out, reportUpdater), //
+						createFailureCounter(failureCounter)//
+				));
 		while (true) {// TODO Export loop control to report so we can dispose on close
 			algorithm.iterate();
 		}
+	}
+
+	private static IterationListener<StatsAffine, ErrorBounds> createFailureCounter(int[] count) {
+		return new IterationListener<StatsAffine, ErrorBounds>() {
+
+			Model<StatsAffine> candidate;
+
+			@Override
+			public void startIteration() {
+				// Ignore
+			}
+
+			@Override
+			public void parameterGenerated(StatsAffine parameter) {
+				// Ignore
+			}
+
+			@Override
+			public void modelGenerated(Model<StatsAffine> model) {
+				candidate = model;
+			}
+
+			@Override
+			public void modelScored(Model<StatsAffine> model, ErrorBounds score) {
+				// Ignore
+			}
+
+			@Override
+			public void bestModelSelected(Model<StatsAffine> model) {
+				if (model == candidate) {
+					count[0] = 0;
+				} else {
+					count[0]++;
+				}
+			}
+		};
+	}
+
+	private static Model<Double> createFactoredReferenceModel(StatisticsDataset referenceStatistics, double factor) {
+		String name = "Ref x " + factor;
+		StatisticsDataset dataset = referenceStatistics//
+				.splitProfiles()//
+				.factor((profile, statType) -> factor);
+		return Model.create(factor, name, dataset);
 	}
 
 	private static <P, S> IterationListener<P, S> createStepDisplayer(Function<S, String> scoreFormatter,
@@ -368,7 +361,7 @@ public class Main {
 		}
 	}
 
-	static interface Parameters {
+	static interface StatsAffine {
 
 		Affine q1();
 
@@ -376,8 +369,8 @@ public class Main {
 
 		Affine q3();
 
-		static Parameters create(Affine q1, Affine mean, Affine q3) {
-			return new Parameters() {
+		static StatsAffine create(Affine q1, Affine mean, Affine q3) {
+			return new StatsAffine() {
 
 				@Override
 				public Affine q1() {
@@ -401,55 +394,55 @@ public class Main {
 			};
 		}
 
-		default Parameters addGlobalIntercept(double delta) {
+		default StatsAffine addGlobalIntercept(double delta) {
 			return this.addQ1Intercept(delta).addMeanIntercept(delta).addQ3Intercept(delta);
 		}
 
-		default Parameters addQ1Slope(double delta) {
+		default StatsAffine addQ1Slope(double delta) {
 			return create(q1().addSlope(delta), mean(), q3());
 		}
 
-		default Parameters addQ1Intercept(double delta) {
+		default StatsAffine addQ1Intercept(double delta) {
 			return create(q1().addIntercept(delta), mean(), q3());
 		}
 
-		default Parameters addMeanSlope(double delta) {
+		default StatsAffine addMeanSlope(double delta) {
 			return create(q1(), mean().addSlope(delta), q3());
 		}
 
-		default Parameters addMeanIntercept(double delta) {
+		default StatsAffine addMeanIntercept(double delta) {
 			return create(q1(), mean().addIntercept(delta), q3());
 		}
 
-		default Parameters addQ3Slope(double delta) {
+		default StatsAffine addQ3Slope(double delta) {
 			return create(q1(), mean(), q3().addSlope(delta));
 		}
 
-		default Parameters addQ3Intercept(double delta) {
+		default StatsAffine addQ3Intercept(double delta) {
 			return create(q1(), mean(), q3().addIntercept(delta));
 		}
 
-		default Parameters addQ1Start(double delta) {
+		default StatsAffine addQ1Start(double delta) {
 			return create(q1().addStart(delta), mean(), q3());
 		}
 
-		default Parameters addQ1End(double delta) {
+		default StatsAffine addQ1End(double delta) {
 			return create(q1().addEnd(delta), mean(), q3());
 		}
 
-		default Parameters addMeanStart(double delta) {
+		default StatsAffine addMeanStart(double delta) {
 			return create(q1(), mean().addStart(delta), q3());
 		}
 
-		default Parameters addMeanEnd(double delta) {
+		default StatsAffine addMeanEnd(double delta) {
 			return create(q1(), mean().addEnd(delta), q3());
 		}
 
-		default Parameters addQ3Start(double delta) {
+		default StatsAffine addQ3Start(double delta) {
 			return create(q1(), mean(), q3().addStart(delta));
 		}
 
-		default Parameters addQ3End(double delta) {
+		default StatsAffine addQ3End(double delta) {
 			return create(q1(), mean(), q3().addEnd(delta));
 		}
 	}
