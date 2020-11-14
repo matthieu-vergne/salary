@@ -1,5 +1,6 @@
 package fr.vergne.salary;
 
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
@@ -43,37 +44,41 @@ public interface SearchAlgorithm {
 		void bestModelSelected(Model<P> model);
 	}
 
+	@SafeVarargs
 	static <P, S> SearchAlgorithm createDownHill(//
-			Supplier<P> parameterGenerator, Function<P, P> parameterAdapter, //
+			Supplier<P> parameterGenerator, //
+			Function<P, P> parameterAdapter, //
 			Function<P, Model<P>> modelFactory, //
 			Function<Model<P>, S> modelEvaluator, //
-			Comparator<S> scoreComparator, Function<S, String> scoreFormatter, //
-			List<IterationListener<P, S>> listeners) {
+			Comparator<S> scoreComparator, //
+			Function<S, String> scoreFormatter, //
+			IterationListener<P, S>... listeners) {
 		return new SearchAlgorithm() {
 			Solution<P, S> best = null;
 			Comparator<Solution<P, S>> solutionComparator = Comparator.comparing(Solution::score, scoreComparator);
 
 			@Override
 			public void iterate() {
-				listeners.forEach(listener -> listener.startIteration());
+				List<IterationListener<P, S>> allListeners = Arrays.asList(listeners);
+				allListeners.forEach(listener -> listener.startIteration());
 				P parameter;
 				if (best == null) {
 					parameter = parameterGenerator.get();
 				} else {
 					parameter = parameterAdapter.apply(best.model().parameter());
 				}
-				listeners.forEach(listener -> listener.parameterGenerated(parameter));
+				allListeners.forEach(listener -> listener.parameterGenerated(parameter));
 
 				Model<P> model = modelFactory.apply(parameter);
-				listeners.forEach(listener -> listener.modelGenerated(model));
+				allListeners.forEach(listener -> listener.modelGenerated(model));
 
 				S score = modelEvaluator.apply(model);
-				listeners.forEach(listener -> listener.modelScored(model, score));
+				allListeners.forEach(listener -> listener.modelScored(model, score));
 
 				Solution<P, S> candidate = Solution.create(model, score);
 				best = best == null ? candidate //
 						: solutionComparator.compare(candidate, best) > 0 ? candidate : best;
-				listeners.forEach(listener -> listener.bestModelSelected(best.model()));
+				allListeners.forEach(listener -> listener.bestModelSelected(best.model()));
 			}
 		};
 	}

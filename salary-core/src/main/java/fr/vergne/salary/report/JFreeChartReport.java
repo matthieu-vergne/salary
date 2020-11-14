@@ -22,7 +22,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
@@ -30,6 +29,7 @@ import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
 import javax.swing.AbstractAction;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -154,6 +154,7 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 			frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 
 			frame.setLayout(new GridBagLayout());
+
 			/********************
 			 * CHART CONTAINERS *
 			 ********************/
@@ -185,8 +186,8 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 
 			constraints = new GridBagConstraints();
 			constraints.fill = GridBagConstraints.BOTH;
-			Supplier<LayoutManager> verticalLayout = () -> new GridLayout(2, 1);
-			Supplier<LayoutManager> horizontalLayout = () -> new GridLayout(1, 2);
+			Function<JComponent, LayoutManager> verticalLayout = container -> new GridLayout(2, 1);
+			Function<JComponent, LayoutManager> horizontalLayout = container -> new GridLayout(1, 2);
 			int alignCenter = SwingConstants.CENTER;
 			int alignTop = SwingConstants.TOP;
 			int alignBottom = SwingConstants.BOTTOM;
@@ -239,7 +240,7 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 
 			setKeyboardShortcut(frame, //
 					getKeyStroke(VK_S, CTRL_DOWN_MASK), //
-					event -> snapshot(frame, title));
+					event -> snapshot(frame.getContentPane(), title));
 
 			/***********
 			 * DISPLAY *
@@ -264,13 +265,12 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 		frame.getRootPane().getInputMap().put(keyStroke, key);
 	}
 
-	private void snapshot(JFrame frame, String title) {
-		Component component = frame.getContentPane();
-		BufferedImage image = new BufferedImage(component.getWidth(), component.getHeight(),
+	private void snapshot(Component component, String title) {
+		BufferedImage image = new BufferedImage(//
+				component.getWidth(), //
+				component.getHeight(), //
 				BufferedImage.TYPE_INT_RGB);
-		// call the Component's paint method, using
-		// the Graphics object of the image.
-		component.paint(image.getGraphics()); // alternately use .printAll(..)
+		component.paint(image.getGraphics());
 		File file;
 		String name = title.replaceAll("[^a-zA-Z0-9]+", "-");
 		try {
@@ -282,13 +282,14 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 		try {
 			ImageIO.write(image, "png", file);
 		} catch (IOException cause) {
-			// TODO Auto-generated catch block
-			cause.printStackTrace();
+			throw new RuntimeException(cause);
 		}
 	}
 
-	private JPanel createTransitionPanel(Supplier<LayoutManager> layout, JLabel firstLabel, JLabel secondLabel) {
-		JPanel panel = new JPanel(layout.get());
+	private JPanel createTransitionPanel(Function<JComponent, LayoutManager> layout, JLabel firstLabel,
+			JLabel secondLabel) {
+		JPanel panel = new JPanel();
+		panel.setLayout(layout.apply(panel));
 		panel.add(firstLabel);
 		panel.add(secondLabel);
 		return panel;

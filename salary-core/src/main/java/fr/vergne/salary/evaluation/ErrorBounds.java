@@ -1,10 +1,10 @@
 package fr.vergne.salary.evaluation;
 
 public class ErrorBounds {
-	private final double min;
-	private final double max;
+	private final Double min;
+	private final Double max;
 
-	private ErrorBounds(double min, double max) {
+	private ErrorBounds(Double min, Double max) {
 		this.min = min;
 		this.max = max;
 	}
@@ -17,12 +17,14 @@ public class ErrorBounds {
 		return max;
 	}
 
-	public static ErrorBounds createLargest() {
-		return new ErrorBounds(Double.POSITIVE_INFINITY, 0);
+	public static ErrorBounds undefined() {
+		return new ErrorBounds(null, null);
 	}
 
-	public ErrorBounds refine(double error) {
-		return new ErrorBounds(Math.min(min, error), Math.max(max, error));
+	public ErrorBounds extendsTo(double error) {
+		return new ErrorBounds(//
+				min == null ? error : Math.min(min, error), //
+				max == null ? error : Math.max(max, error));
 	}
 
 	@Override
