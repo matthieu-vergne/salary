@@ -19,12 +19,12 @@ import fr.vergne.salary.model.Model;
 import fr.vergne.salary.salary.SalaryEstimator;
 import fr.vergne.salary.salary.SalaryEstimatorFactory;
 
-public class ErrorBoundsOperators {
+public class ErrorBoundsOperators<P> {
 	private final int randomSeed;
 	private final int salariesPerProfileInEvaluation;
 	private final StatisticsDataset referenceStatistics;
 
-	private final Collection<EvaluationListenerFactory<ErrorBounds>> listenerFactories = new LinkedList<>();
+	private final Collection<EvaluationListenerFactory<P, ErrorBounds>> listenerFactories = new LinkedList<>();
 
 	public ErrorBoundsOperators(//
 			int randomSeed, //
@@ -35,11 +35,11 @@ public class ErrorBoundsOperators {
 		this.referenceStatistics = referenceStatistics;
 	}
 
-	public void register(EvaluationListenerFactory<ErrorBounds> factory) {
+	public void register(EvaluationListenerFactory<P, ErrorBounds> factory) {
 		listenerFactories.add(factory);
 	}
 
-	public <P> Function<Model<P>, ErrorBounds> modelEvaluator() {
+	public Function<Model<P>, ErrorBounds> modelEvaluator() {
 		SalaryEstimatorFactory salaryEstimatorFactory = new SalaryEstimatorFactory(randomSeed);
 		return model -> {
 			List<EvaluationListener<ErrorBounds>> listeners = listenerFactories.stream()//
@@ -111,9 +111,9 @@ public class ErrorBoundsOperators {
 						Entry<Profile, Statistics>::getValue)));
 	}
 
-	public interface EvaluationListenerFactory<S> {
+	public interface EvaluationListenerFactory<P, S> {
 
-		EvaluationListener<S> create(Model<?> model);
+		EvaluationListener<S> create(Model<P> model);
 
 	}
 

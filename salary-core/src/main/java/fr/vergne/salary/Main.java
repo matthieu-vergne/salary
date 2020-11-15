@@ -17,9 +17,12 @@ import fr.vergne.salary.data.StatisticsDataset;
 import fr.vergne.salary.evaluation.ErrorBounds;
 import fr.vergne.salary.evaluation.ErrorBoundsOperators;
 import fr.vergne.salary.model.AffineModelOperators;
+import fr.vergne.salary.model.AffineModelOperators.Parameters;
+import fr.vergne.salary.model.ExponentialModelOperators;
 import fr.vergne.salary.model.Model;
 import fr.vergne.salary.model.ReferenceFactorModelOperators;
 import fr.vergne.salary.report.GraphicalReport;
+import fr.vergne.salary.util.SuccessFailureObserver;
 
 public class Main {
 
@@ -41,25 +44,30 @@ public class Main {
 		AffineModelOperators affineModelOperators = new AffineModelOperators(//
 				new Random(randomSeed), //
 				referenceStatistics);
+		ExponentialModelOperators exponentialModelOperators = new ExponentialModelOperators(//
+				new Random(randomSeed), //
+				referenceStatistics);
 
-		ErrorBoundsOperators errorBoundsOperators = new ErrorBoundsOperators(//
+		ErrorBoundsOperators<Parameters> errorBoundsOperators = new ErrorBoundsOperators<>(//
 				randomSeed, //
 				salariesPerProfileInEvaluation, //
 				referenceStatistics);
-		Function<ErrorBounds, String> scoreFormatter = errorBoundsOperators.scoreFormatter();
-
-		GraphicalReport<ErrorBounds> report = GraphicalReport.create(//
-				reportTitle, //
-				chartWidth, chartHeight, transitionWidth, //
-				scoreFormatter, salariesPerProfileInReport);
-		ReportUpdater<ErrorBounds> reportUpdater = new ReportUpdater<>(report);
-		report.setReferenceStatistics(referenceStatistics);
-
 		var modelOperators = affineModelOperators;
 		var evaluationOperators = errorBoundsOperators;
+
+		GraphicalReport<Parameters, ErrorBounds> report = GraphicalReport.create(//
+				reportTitle, //
+				chartWidth, //
+				chartHeight, //
+				transitionWidth, //
+				modelOperators.parametersFormatter(), //
+				errorBoundsOperators.scoreFormatter(), //
+				salariesPerProfileInReport);
+		var reportUpdater = new ReportUpdater<>(report);
+		report.setReferenceStatistics(referenceStatistics);
+
 		evaluationOperators.register(reportUpdater::createModelEvaluationListener);
 
-		// TODO Parametered model on exponential curves
 		// TODO Parametered model on logarithmic curves
 		// TODO GA to converge parameters to reference
 		SearchAlgorithm algorithm = SearchAlgorithm.createDownHill(//
@@ -69,14 +77,51 @@ public class Main {
 				evaluationOperators.modelEvaluator(), //
 				evaluationOperators.scoreComparator(), //
 				evaluationOperators.scoreFormatter(), //
-				createStepDisplayer(scoreFormatter, System.out, reportUpdater));
+				createStepDisplayer(errorBoundsOperators.scoreFormatter(), System.out, reportUpdater), //
+				observeSuccessFailure(modelOperators));
 		while (true) {// TODO Export loop control to report so we can dispose on close
 			algorithm.iterate();
 		}
 	}
 
+	private static <P, S> IterationListener<P, S> observeSuccessFailure(SuccessFailureObserver observer) {
+		return new SearchAlgorithm.IterationListener<P, S>() {
+
+			Model<P> candidateModel;
+
+			@Override
+			public void startIteration() {
+				// Ignore
+			}
+
+			@Override
+			public void parameterGenerated(P parameter) {
+				// Ignore
+			}
+
+			@Override
+			public void modelGenerated(Model<P> model) {
+				candidateModel = model;
+			}
+
+			@Override
+			public void modelScored(Model<P> model, S score) {
+				// Ignore
+			}
+
+			@Override
+			public void bestModelSelected(Model<P> model) {
+				if (model == candidateModel) {
+					observer.notifySuccess();
+				} else {
+					observer.notifyFailure();
+				}
+			}
+		};
+	}
+
 	private static <P, S> IterationListener<P, S> createStepDisplayer(Function<S, String> scoreFormatter,
-			PrintStream out, ReportUpdater<S> reportUpdater) {
+			PrintStream out, ReportUpdater<P, S> reportUpdater) {
 		return new SearchAlgorithm.IterationListener<P, S>() {
 
 			Model<P> bestModel;
@@ -139,16 +184,16 @@ public class Main {
 				Profile.create(sen_2_5, exp_10_14), Statistics.create(40.107, 45.755, 52.090)));
 	}
 
-	static class ReportPreparator<S> implements ErrorBoundsOperators.EvaluationListener<S> {
+	static class ReportPreparator<P, S> implements ErrorBoundsOperators.EvaluationListener<S> {
 
-		private final GraphicalReport<S> report;
-		private final Model<?> model;
+		private final GraphicalReport<P, S> report;
+		private final Model<P> model;
 		private SalariesDataset modelBasedSalaries;
 		private StatisticsDataset salariesStatistics;
 		private Map<Type, ErrorBounds> errorBounds = new HashMap<>();
 		private S score;
 
-		public ReportPreparator(GraphicalReport<S> report, Model<?> model) {
+		public ReportPreparator(GraphicalReport<P, S> report, Model<P> model) {
 			this.report = report;
 			this.model = model;
 			Stream.of(Type.values()).forEach(type -> {
@@ -188,17 +233,17 @@ public class Main {
 		}
 	};
 
-	static class ReportUpdater<S> {
+	static class ReportUpdater<P, S> {
 
-		private final GraphicalReport<S> report;
-		private ReportPreparator<S> preparator;
+		private final GraphicalReport<P, S> report;
+		private ReportPreparator<P, S> preparator;
 
-		public ReportUpdater(GraphicalReport<S> report) {
+		public ReportUpdater(GraphicalReport<P, S> report) {
 			this.report = report;
 		}
 
-		public ErrorBoundsOperators.EvaluationListener<S> createModelEvaluationListener(Model<?> model) {
-			preparator = new ReportPreparator<S>(report, model);
+		public ErrorBoundsOperators.EvaluationListener<S> createModelEvaluationListener(Model<P> model) {
+			preparator = new ReportPreparator<P, S>(report, model);
 			return preparator;
 		}
 

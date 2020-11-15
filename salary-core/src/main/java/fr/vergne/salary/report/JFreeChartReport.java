@@ -52,7 +52,7 @@ import fr.vergne.salary.data.StatisticsDataset;
 import fr.vergne.salary.evaluation.ErrorBounds;
 import fr.vergne.salary.model.Model;
 
-public class JFreeChartReport<S> implements GraphicalReport<S> {
+public class JFreeChartReport<P, S> implements GraphicalReport<P, S> {
 
 	private static final String SCORE_KEY = "{score}";
 
@@ -61,6 +61,7 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 	private final int transitionWidth;
 	private final int salariesPerProfile;
 
+	private final Function<P, String> parametersFormatter;
 	private final Function<S, String> scoreFormatter;
 
 	private final JPanel referenceStatsPanel = createChartPanel();
@@ -74,12 +75,13 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 	private final JLabel referenceComparisonLabel = createTransitionTextLabel("Compare");
 
 	public JFreeChartReport(String title, int chartWidth, int chartHeight, int transitionWidth,
-			Function<S, String> scoreFormatter, int salariesPerProfile) {
+			Function<P, String> parametersFormatter, Function<S, String> scoreFormatter, int salariesPerProfile) {
 		this.chartWidth = chartWidth;
 		this.chartHeight = chartHeight;
 		this.transitionWidth = transitionWidth;
 		this.salariesPerProfile = salariesPerProfile;
 		this.scoreFormatter = scoreFormatter;
+		this.parametersFormatter = parametersFormatter;
 		createAndShowFrame(title);
 	}
 
@@ -91,8 +93,8 @@ public class JFreeChartReport<S> implements GraphicalReport<S> {
 	}
 
 	@Override
-	public void setModelStatistics(Model<?> model) {
-		String title = model.toString();
+	public void setModelStatistics(Model<P> model) {
+		String title = parametersFormatter.apply(model.parameter());
 		JFreeChart chart = createBoxPlot(model.dataset(), title);
 		updateChart(modelStatsPanel, chart);
 	}
