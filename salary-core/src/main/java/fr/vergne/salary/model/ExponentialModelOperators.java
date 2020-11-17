@@ -19,11 +19,9 @@ public class ExponentialModelOperators {
 	private final Set<Profile> profiles;
 	private int randPower = 0;
 
-	public ExponentialModelOperators(Random rand, StatisticsDataset referenceStatistics) {
+	public ExponentialModelOperators(Random rand, Set<Profile> profiles) {
 		this.rand = rand;
-		this.profiles = referenceStatistics//
-				.splitProfiles()//
-				.toMap().keySet();
+		this.profiles = profiles;
 	}
 
 	public Supplier<Parameters> parameterGenerator() {

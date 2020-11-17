@@ -4,6 +4,7 @@ import java.io.PrintStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -37,16 +38,19 @@ public class Main {
 
 		System.out.println("Create reference statistics");
 		StatisticsDataset referenceStatistics = createReferenceDataset();
+		Set<Profile> splitProfiles = referenceStatistics//
+				.splitProfiles()//
+				.toMap().keySet();
 
 		ReferenceFactorModelOperators referenceFactorModelOperators = new ReferenceFactorModelOperators(//
 				new Random(randomSeed), //
 				referenceStatistics);
 		AffineModelOperators affineModelOperators = new AffineModelOperators(//
 				new Random(randomSeed), //
-				referenceStatistics);
+				splitProfiles);
 		ExponentialModelOperators exponentialModelOperators = new ExponentialModelOperators(//
 				new Random(randomSeed), //
-				referenceStatistics);
+				splitProfiles);
 
 		ErrorBoundsOperators<Parameters> errorBoundsOperators = new ErrorBoundsOperators<>(//
 				randomSeed, //
@@ -71,8 +75,8 @@ public class Main {
 		// TODO Parametered model on logarithmic curves
 		// TODO GA to converge parameters to reference
 		SearchAlgorithm algorithm = SearchAlgorithm.createDownHill(//
-				modelOperators.parameterGenerator(), //
-				modelOperators.parameterAdapter(), //
+				modelOperators.parametersGenerator(), //
+				modelOperators.parametersAdapter(), //
 				modelOperators.modelFactory(), //
 				evaluationOperators.modelEvaluator(), //
 				evaluationOperators.scoreComparator(), //

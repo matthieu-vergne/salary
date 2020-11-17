@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -16,6 +17,7 @@ import java.util.stream.Stream;
 import fr.vergne.salary.data.Profile;
 import fr.vergne.salary.data.Statistics;
 import fr.vergne.salary.data.StatisticsDataset;
+import fr.vergne.salary.util.Bounds;
 import fr.vergne.salary.util.SuccessFailureObserver;
 
 // TODO Use different parameters for each seniority
@@ -23,11 +25,9 @@ public class AffineModelOperators implements SuccessFailureObserver {
 	private final Random rand;
 	private final Set<Profile> profiles;
 
-	public AffineModelOperators(Random rand, StatisticsDataset referenceStatistics) {
+	public AffineModelOperators(Random rand, Set<Profile> profiles) {
 		this.rand = rand;
-		this.profiles = referenceStatistics//
-				.splitProfiles()//
-				.toMap().keySet();
+		this.profiles = profiles;
 	}
 
 	public Function<Parameters, String> parametersFormatter() {
@@ -40,7 +40,7 @@ public class AffineModelOperators implements SuccessFailureObserver {
 		};
 	}
 
-	public Supplier<Parameters> parameterGenerator() {
+	public Supplier<Parameters> parametersGenerator() {
 		return () -> {
 			Affine q1 = Affine.fromSlopeIntercept(1, 1);
 			Affine q3 = Affine.fromSlopeIntercept(1, 3);
@@ -49,237 +49,168 @@ public class AffineModelOperators implements SuccessFailureObserver {
 		};
 	}
 
-	interface ScaleBounds {
-		int min();
+	static class ParametersMutator implements Mutator<Parameters>, SuccessFailureObserver {
 
-		int max();
+		private long valuePower;
+		private long consecutiveFailures;
+		private double successRatio;
+		private final SuccessFailureObserver updater;
 
-		default Integer restrict(int scale) {
-			return Math.max(min(), Math.min(scale, max()));
+		private final Mutator<Parameters> mutator;
+
+		private ParametersMutator(String name, Bounds<Long> mutationScaleBounds,
+				BiFunction<Parameters, Double, Parameters> definition) {
+			this.updater = SuccessFailureObserver.compose(//
+					SuccessFailureObserver.createConsecutiveFailuresCounter(//
+							() -> 0L, //
+							() -> consecutiveFailures, //
+							value -> consecutiveFailures = value), //
+					SuccessFailureObserver.createSuccessRatio(//
+							() -> 0.5, //
+							() -> successRatio, //
+							value -> successRatio = value, //
+							0.9), //
+					SuccessFailureObserver.create(//
+							() -> valuePower = mutationScaleBounds.max(), //
+							() -> valuePower = mutationScaleBounds.restrict(valuePower + 1), //
+							() -> valuePower = mutationScaleBounds.restrict(valuePower - 1)));
+
+			this.mutator = Mutator.create(//
+					() -> String.format(name + " 2^" + valuePower), //
+					params -> definition.apply(params, Math.pow(2, valuePower)));
 		}
 
-		static ScaleBounds in(int min, int max) {
-			return new ScaleBounds() {
-
-				@Override
-				public int min() {
-					return min;
-				}
-
-				@Override
-				public int max() {
-					return max;
-				}
-
-				@Override
-				public String toString() {
-					return String.format("[%s, %s]", min, max);
-				}
-			};
-		}
-	}
-
-	interface Adaptation {
-		Parameters apply(Parameters parameters);
-
-		static Adaptation create(String name, Function<Parameters, Parameters> definition) {
-			return new Adaptation() {
-
-				@Override
-				public Parameters apply(Parameters parameters) {
-					return definition.apply(parameters);
-				}
-
-				@Override
-				public String toString() {
-					return name;
-				}
-			};
-		}
-	}
-
-	// TODO Don't mix amplitude and scale
-	// Scale is the dynamic adaptation parameter
-	// Amplitude is the random value within the scale
-	interface DynamicAdaptation extends SuccessFailureObserver {
-		Adaptation adaptation(double amplitude);
-
-		default Parameters apply(Parameters parameters) {
-			return adaptation(amplitude()).apply(parameters);
+		@Override
+		public Parameters apply(Parameters parameters) {
+			return mutator.apply(parameters);
 		}
 
-		int successiveFailures();
+		@Override
+		public String toString() {
+			return mutator.toString();
+		}
 
-		void forgetFailures();
+		@Override
+		public void notifySuccess() {
+			updater.notifySuccess();
+		}
 
-		double amplitude();
+		@Override
+		public void notifyFailure() {
+			updater.notifyFailure();
+		}
 
-		double scale();
+		public void forgetFailures() {
+			consecutiveFailures = 0;
+		}
 
-		double successRatio();
-
-		static DynamicAdaptation create(String name, ScaleBounds scaleBounds,
-				Function<Double, Function<Parameters, Parameters>> definition) {
-			return new DynamicAdaptation() {
-
-				int successiveFailures = 0;
-				int scalePower = scaleBounds.restrict(Integer.MAX_VALUE);
-				double successRatio = 0.5;
-
-				@Override
-				public Adaptation adaptation(double amplitude) {
-					return Adaptation.create(name, definition.apply(amplitude));
-				}
-
-				@Override
-				public double amplitude() {
-					return scale();
-				}
-
-				@Override
-				public double scale() {
-					return Math.pow(2, scalePower);
-				}
-
-				@Override
-				public int successiveFailures() {
-					return successiveFailures;
-				}
-
-				@Override
-				public void forgetFailures() {
-					successiveFailures = 0;
-				}
-
-				@Override
-				public double successRatio() {
-					return successRatio;
-				}
-
-				@Override
-				public void notifySuccess() {
-					scalePower = scaleBounds.restrict(scalePower + 1);
-					successRatio = successRatio * 0.95 + 0.05;
-				}
-
-				@Override
-				public void notifyFailure() {
-					successiveFailures++;
-					scalePower = scaleBounds.restrict(scalePower - 1);
-					successRatio = successRatio * 0.95;
-				}
-
-				@Override
-				public String toString() {
-					return name;
-				}
-			};
+		static ParametersMutator create(String name, Bounds<Long> mutationScaleBounds,
+				BiFunction<Parameters, Double, Parameters> definition) {
+			return new ParametersMutator(name, mutationScaleBounds, definition);
 		}
 	}
 
-	private final ScaleBounds scaleBounds = ScaleBounds.in(-30, 5);
-	private final List<DynamicAdaptation> adaptations = Arrays.asList(//
-			// Variants
-
+	private final Bounds<Long> mutationScaleBounds = Bounds.in(-6L, 5L);
+	private final List<ParametersMutator> mutators = Arrays.asList(//
 			// FIXME Forbidden by Gaussian assumption
-			// params.addQ1Start(delta), //
-			// params.addQ1End(delta), //
-			// params.addMeanStart(delta), //
-			// params.addMeanEnd(delta), //
-			// params.addQ3Start(delta), //
-			// params.addQ3End(delta), //
+			// params.addQ1Start(value), //
+			// params.addQ1End(value), //
+			// params.addMeanStart(value), //
+			// params.addMeanEnd(value), //
+			// params.addQ3Start(value), //
+			// params.addQ3End(value), //
 
 			// Move
-			DynamicAdaptation.create("move start up", scaleBounds, //
-					delta -> params -> params.addQ1Start(delta).addMeanStart(delta).addQ3Start(delta)),
-			DynamicAdaptation.create("move start down", scaleBounds, //
-					delta -> params -> params.addQ1Start(-delta).addMeanStart(-delta).addQ3Start(-delta)), //
-			DynamicAdaptation.create("move end up", scaleBounds, //
-					delta -> params -> params.addQ1End(delta).addMeanEnd(delta).addQ3End(delta)), //
-			DynamicAdaptation.create("move end down", scaleBounds, //
-					delta -> params -> params.addQ1End(-delta).addMeanEnd(-delta).addQ3End(-delta)), //
-			DynamicAdaptation.create("move all up", scaleBounds, //
-					delta -> params -> params.addQ1Intercept(delta).addMeanIntercept(delta).addQ3Intercept(delta)), //
-			DynamicAdaptation.create("move all down", scaleBounds, //
-					delta -> params -> params.addQ1Intercept(-delta).addMeanIntercept(-delta).addQ3Intercept(-delta)), //
+			ParametersMutator.create("move start up", mutationScaleBounds, //
+					(params, value) -> params.addQ1Start(value).addMeanStart(value).addQ3Start(value)),
+			ParametersMutator.create("move start down", mutationScaleBounds, //
+					(params, value) -> params.addQ1Start(-value).addMeanStart(-value).addQ3Start(-value)), //
+			ParametersMutator.create("move end up", mutationScaleBounds, //
+					(params, value) -> params.addQ1End(value).addMeanEnd(value).addQ3End(value)), //
+			ParametersMutator.create("move end down", mutationScaleBounds, //
+					(params, value) -> params.addQ1End(-value).addMeanEnd(-value).addQ3End(-value)), //
+			ParametersMutator.create("move all up", mutationScaleBounds, //
+					(params, value) -> params.addQ1Intercept(value).addMeanIntercept(value).addQ3Intercept(value)), //
+			ParametersMutator.create("move all down", mutationScaleBounds, //
+					(params, value) -> params.addQ1Intercept(-value).addMeanIntercept(-value).addQ3Intercept(-value)), //
 
 			// Compress
-			DynamicAdaptation.create("compress start", scaleBounds, //
-					delta -> params -> params.addQ1Start(delta).addQ3Start(-delta)), //
-			DynamicAdaptation.create("extend start", scaleBounds, //
-					delta -> params -> params.addQ1Start(-delta).addQ3Start(delta)), //
-			DynamicAdaptation.create("compress end", scaleBounds, //
-					delta -> params -> params.addQ1End(delta).addQ3End(-delta)), //
-			DynamicAdaptation.create("extend end", scaleBounds, //
-					delta -> params -> params.addQ1End(-delta).addQ3End(delta)), //
-			DynamicAdaptation.create("compress all", scaleBounds, //
-					delta -> params -> params.addQ1Intercept(delta).addQ3Intercept(-delta)), //
-			DynamicAdaptation.create("extend all", scaleBounds, //
-					delta -> params -> params.addQ1Intercept(-delta).addQ3Intercept(delta)), //
+			ParametersMutator.create("compress start", mutationScaleBounds, //
+					(params, value) -> params.addQ1Start(value).addQ3Start(-value)), //
+			ParametersMutator.create("extend start", mutationScaleBounds, //
+					(params, value) -> params.addQ1Start(-value).addQ3Start(value)), //
+			ParametersMutator.create("compress end", mutationScaleBounds, //
+					(params, value) -> params.addQ1End(value).addQ3End(-value)), //
+			ParametersMutator.create("extend end", mutationScaleBounds, //
+					(params, value) -> params.addQ1End(-value).addQ3End(value)), //
+			ParametersMutator.create("compress all", mutationScaleBounds, //
+					(params, value) -> params.addQ1Intercept(value).addQ3Intercept(-value)), //
+			ParametersMutator.create("extend all", mutationScaleBounds, //
+					(params, value) -> params.addQ1Intercept(-value).addQ3Intercept(value)), //
 
 			// Compress towards Q1
-			DynamicAdaptation.create("extend start from Q1", scaleBounds, //
-					delta -> params -> params.addMeanStart(delta / 2).addQ3Start(delta)), //
-			DynamicAdaptation.create("compress start to Q1", scaleBounds, //
-					delta -> params -> params.addMeanStart(-delta / 2).addQ3Start(-delta)), //
-			DynamicAdaptation.create("extend end from Q1", scaleBounds, //
-					delta -> params -> params.addMeanEnd(delta / 2).addQ3End(delta)), //
-			DynamicAdaptation.create("compress end to Q1", scaleBounds, //
-					delta -> params -> params.addMeanEnd(-delta / 2).addQ3End(-delta)), //
-			DynamicAdaptation.create("extend all from Q1", scaleBounds, //
-					delta -> params -> params.addMeanIntercept(delta / 2).addQ3Intercept(delta)), //
-			DynamicAdaptation.create("compress all to Q1", scaleBounds, //
-					delta -> params -> params.addMeanIntercept(-delta / 2).addQ3Intercept(-delta)), //
+			ParametersMutator.create("extend start from Q1", mutationScaleBounds, //
+					(params, value) -> params.addMeanStart(value / 2).addQ3Start(value)), //
+			ParametersMutator.create("compress start to Q1", mutationScaleBounds, //
+					(params, value) -> params.addMeanStart(-value / 2).addQ3Start(-value)), //
+			ParametersMutator.create("extend end from Q1", mutationScaleBounds, //
+					(params, value) -> params.addMeanEnd(value / 2).addQ3End(value)), //
+			ParametersMutator.create("compress end to Q1", mutationScaleBounds, //
+					(params, value) -> params.addMeanEnd(-value / 2).addQ3End(-value)), //
+			ParametersMutator.create("extend all from Q1", mutationScaleBounds, //
+					(params, value) -> params.addMeanIntercept(value / 2).addQ3Intercept(value)), //
+			ParametersMutator.create("compress all to Q1", mutationScaleBounds, //
+					(params, value) -> params.addMeanIntercept(-value / 2).addQ3Intercept(-value)), //
 
 			// Compress towards Q3
-			DynamicAdaptation.create("compress start to Q3", scaleBounds, //
-					delta -> params -> params.addQ1Start(delta).addMeanStart(delta / 2)), //
-			DynamicAdaptation.create("extend start from Q3", scaleBounds, //
-					delta -> params -> params.addQ1Start(-delta).addMeanStart(-delta / 2)), //
-			DynamicAdaptation.create("compress end to Q3", scaleBounds, //
-					delta -> params -> params.addQ1End(delta).addMeanEnd(delta / 2)), //
-			DynamicAdaptation.create("extend end from Q3", scaleBounds, //
-					delta -> params -> params.addQ1End(-delta).addMeanEnd(-delta / 2)), //
-			DynamicAdaptation.create("compress all to Q3", scaleBounds, //
-					delta -> params -> params.addQ1Intercept(delta).addMeanIntercept(delta / 2)), //
-			DynamicAdaptation.create("extend all from Q3", scaleBounds, //
-					delta -> params -> params.addQ1Intercept(-delta).addMeanIntercept(-delta / 2)) //
+			ParametersMutator.create("compress start to Q3", mutationScaleBounds, //
+					(params, value) -> params.addQ1Start(value).addMeanStart(value / 2)), //
+			ParametersMutator.create("extend start from Q3", mutationScaleBounds, //
+					(params, value) -> params.addQ1Start(-value).addMeanStart(-value / 2)), //
+			ParametersMutator.create("compress end to Q3", mutationScaleBounds, //
+					(params, value) -> params.addQ1End(value).addMeanEnd(value / 2)), //
+			ParametersMutator.create("extend end from Q3", mutationScaleBounds, //
+					(params, value) -> params.addQ1End(-value).addMeanEnd(-value / 2)), //
+			ParametersMutator.create("compress all to Q3", mutationScaleBounds, //
+					(params, value) -> params.addQ1Intercept(value).addMeanIntercept(value / 2)), //
+			ParametersMutator.create("extend all from Q3", mutationScaleBounds, //
+					(params, value) -> params.addQ1Intercept(-value).addMeanIntercept(-value / 2)) //
 	);
 
-	DynamicAdaptation appliedAdaptation;
+	ParametersMutator appliedMutator;
 
-	public Function<Parameters, Parameters> parameterAdapter() {
+	public Function<Parameters, Parameters> parametersAdapter() {
 		return parameters -> {
 
-			Map<Parameters, DynamicAdaptation> appliedAdaptations = new HashMap<>();
+			Map<Parameters, ParametersMutator> appliedMutators = new HashMap<>();
 
-			List<Parameters> candidates = adaptations.stream()//
-					.map(adaptation -> {
-						Parameters candidate = adaptation.apply(parameters);
-						appliedAdaptations.put(candidate, adaptation);
+			List<Parameters> candidates = mutators.stream()//
+					.map(mutator -> {
+						Parameters candidate = mutator.apply(parameters);
+						appliedMutators.put(candidate, mutator);
 						return candidate;
 					})
-					// Filter incoherent variants
+					// Filter incoherent mutations
 					.filter(p -> p.q1().start() >= 0)//
 					.filter(p -> p.q1().start() < p.q3().start())//
 					.filter(p -> p.q1().end() >= 0)//
 					.filter(p -> p.q1().end() < p.q3().end())//
 					.collect(Collectors.toList());
 
-			// Notify failure on invalid adaptations to adapt their scales
-			Map<Parameters, DynamicAdaptation> invalidAdaptations = new HashMap<>(appliedAdaptations);
-			invalidAdaptations.keySet().removeAll(candidates);
-			invalidAdaptations.values().forEach(DynamicAdaptation::notifyFailure);
-			invalidAdaptations.values().forEach(adaptation -> System.out.println("X " + adaptation));
+			// Notify failure on invalid mutations to adapt their values
+			Map<Parameters, ParametersMutator> invalidMutators = new HashMap<>(appliedMutators);
+			invalidMutators.keySet().removeAll(candidates);
+			invalidMutators.values().forEach(mutator -> {
+				System.out.println("X " + mutator);
+				mutator.notifyFailure();
+			});
 
 			if (candidates.isEmpty()) {
 				throw new IllegalStateException("No applicable adaptation");
 			} else {
 				Parameters newParameters = candidates.get(rand.nextInt(candidates.size()));
-				appliedAdaptation = appliedAdaptations.get(newParameters);
-				double appliedScale = appliedAdaptation.scale();
-				System.out.println("Adaptation: " + appliedAdaptation);
-				System.out.println("Scale: " + appliedScale);
+				appliedMutator = appliedMutators.get(newParameters);
+				System.out.println("Adaptation: " + appliedMutator);
 				return newParameters;
 			}
 		};
@@ -335,52 +266,52 @@ public class AffineModelOperators implements SuccessFailureObserver {
 			};
 		}
 
-		default Parameters addQ1Slope(double delta) {
-			return create(q1().addSlope(delta), mean(), q3());
+		default Parameters addQ1Slope(double value) {
+			return create(q1().addSlope(value), mean(), q3());
 		}
 
-		default Parameters addQ1Intercept(double delta) {
-			return create(q1().addIntercept(delta), mean(), q3());
+		default Parameters addQ1Intercept(double value) {
+			return create(q1().addIntercept(value), mean(), q3());
 		}
 
-		default Parameters addMeanSlope(double delta) {
-			return create(q1(), mean().addSlope(delta), q3());
+		default Parameters addMeanSlope(double value) {
+			return create(q1(), mean().addSlope(value), q3());
 		}
 
-		default Parameters addMeanIntercept(double delta) {
-			return create(q1(), mean().addIntercept(delta), q3());
+		default Parameters addMeanIntercept(double value) {
+			return create(q1(), mean().addIntercept(value), q3());
 		}
 
-		default Parameters addQ3Slope(double delta) {
-			return create(q1(), mean(), q3().addSlope(delta));
+		default Parameters addQ3Slope(double value) {
+			return create(q1(), mean(), q3().addSlope(value));
 		}
 
-		default Parameters addQ3Intercept(double delta) {
-			return create(q1(), mean(), q3().addIntercept(delta));
+		default Parameters addQ3Intercept(double value) {
+			return create(q1(), mean(), q3().addIntercept(value));
 		}
 
-		default Parameters addQ1Start(double delta) {
-			return create(q1().addStart(delta), mean(), q3());
+		default Parameters addQ1Start(double value) {
+			return create(q1().addStart(value), mean(), q3());
 		}
 
-		default Parameters addQ1End(double delta) {
-			return create(q1().addEnd(delta), mean(), q3());
+		default Parameters addQ1End(double value) {
+			return create(q1().addEnd(value), mean(), q3());
 		}
 
-		default Parameters addMeanStart(double delta) {
-			return create(q1(), mean().addStart(delta), q3());
+		default Parameters addMeanStart(double value) {
+			return create(q1(), mean().addStart(value), q3());
 		}
 
-		default Parameters addMeanEnd(double delta) {
-			return create(q1(), mean().addEnd(delta), q3());
+		default Parameters addMeanEnd(double value) {
+			return create(q1(), mean().addEnd(value), q3());
 		}
 
-		default Parameters addQ3Start(double delta) {
-			return create(q1(), mean(), q3().addStart(delta));
+		default Parameters addQ3Start(double value) {
+			return create(q1(), mean(), q3().addStart(value));
 		}
 
-		default Parameters addQ3End(double delta) {
-			return create(q1(), mean(), q3().addEnd(delta));
+		default Parameters addQ3End(double value) {
+			return create(q1(), mean(), q3().addEnd(value));
 		}
 	}
 
@@ -409,35 +340,35 @@ public class AffineModelOperators implements SuccessFailureObserver {
 			return yBD.doubleValue();
 		}
 
-		default Affine addSlope(double delta) {
-			return fromSlopeIntercept(slope() + delta, intercept());
+		default Affine addSlope(double value) {
+			return fromSlopeIntercept(slope() + value, intercept());
 		}
 
-		default Affine addIntercept(double delta) {
-			return fromSlopeIntercept(slope(), intercept() + delta);
+		default Affine addIntercept(double value) {
+			return fromSlopeIntercept(slope(), intercept() + value);
 		}
 
-		default Affine movePoint(double delta, int xMove, int xFix) {
+		default Affine movePoint(double value, int xMove, int xFix) {
 			BigDecimal xFixBD = BigDecimal.valueOf(xFix);
 			BigDecimal xMoveBD = BigDecimal.valueOf(xMove);
-			BigDecimal deltaBD = BigDecimal.valueOf(delta);
+			BigDecimal valueBD = BigDecimal.valueOf(value);
 			BigDecimal slopeBD = BigDecimal.valueOf(slope());
 			BigDecimal interceptBD = BigDecimal.valueOf(intercept());
 
-			BigDecimal normDeltaBD = deltaBD.divide(xFixBD.subtract(xMoveBD), RoundingMode.HALF_UP);
-			BigDecimal newSlopeBD = slopeBD.subtract(normDeltaBD);
-			BigDecimal newInterceptBD = interceptBD.add(xFixBD.multiply(normDeltaBD));
+			BigDecimal normValueBD = valueBD.divide(xFixBD.subtract(xMoveBD), RoundingMode.HALF_UP);
+			BigDecimal newSlopeBD = slopeBD.subtract(normValueBD);
+			BigDecimal newInterceptBD = interceptBD.add(xFixBD.multiply(normValueBD));
 			return fromSlopeIntercept(//
 					newSlopeBD.doubleValue(), //
 					newInterceptBD.doubleValue());
 		}
 
-		default Affine addStart(double delta) {
-			return this.movePoint(delta, expStart, expEnd);
+		default Affine addStart(double value) {
+			return this.movePoint(value, expStart, expEnd);
 		}
 
-		default Affine addEnd(double delta) {
-			return this.movePoint(delta, expEnd, expStart);
+		default Affine addEnd(double value) {
+			return this.movePoint(value, expEnd, expStart);
 		}
 
 		static Affine fromSlopeIntercept(double slope, double intercept) {
@@ -469,25 +400,25 @@ public class AffineModelOperators implements SuccessFailureObserver {
 
 	@Override
 	public void notifySuccess() {
-		adaptations.forEach(adaptation -> adaptation.forgetFailures());
-		if (appliedAdaptation != null) {
-			appliedAdaptation.notifySuccess();
+		mutators.forEach(ParametersMutator::forgetFailures);
+		if (appliedMutator != null) {
+			appliedMutator.notifySuccess();
 		}
 		displayAdaptationSummary();
 	}
 
 	@Override
 	public void notifyFailure() {
-		if (appliedAdaptation != null) {
-			appliedAdaptation.notifyFailure();
+		if (appliedMutator != null) {
+			appliedMutator.notifyFailure();
 		}
 		displayAdaptationSummary();
 	}
 
 	private void displayAdaptationSummary() {
-		if (appliedAdaptation != null) {
-			System.out.println(String.format("Interest: %.2f%%", 100.0 / (1 + appliedAdaptation.successiveFailures())));
-			System.out.println(String.format("Ratio: %.2f%%", 100 * appliedAdaptation.successRatio()));
+		if (appliedMutator != null) {
+			System.out.println(String.format("Interest: %.2f%%", 100.0 / (1 + appliedMutator.consecutiveFailures)));
+			System.out.println(String.format("Ratio: %.2f%%", 100 * appliedMutator.successRatio));
 		}
 	}
 }

@@ -2,8 +2,8 @@ package fr.vergne.salary.model;
 
 import fr.vergne.salary.data.StatisticsDataset;
 
-public interface Model<Parameter> {
-	Parameter parameter();
+public interface Model<P> {
+	P parameter();
 
 	StatisticsDataset dataset();
 
