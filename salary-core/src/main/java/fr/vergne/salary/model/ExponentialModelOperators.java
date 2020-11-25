@@ -1,5 +1,6 @@
 package fr.vergne.salary.model;
 
+import java.io.PrintStream;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -18,13 +19,25 @@ public class ExponentialModelOperators {
 	private final Random rand;
 	private final Set<Profile> profiles;
 	private int randPower = 0;
+	private final PrintStream printStream;
 
-	public ExponentialModelOperators(Random rand, Set<Profile> profiles) {
+	public ExponentialModelOperators(Random rand, Set<Profile> profiles, PrintStream printStream) {
 		this.rand = rand;
 		this.profiles = profiles;
+		this.printStream = printStream;
 	}
 
-	public Supplier<Parameters> parameterGenerator() {
+	public Function<Parameters, String> parametersFormatter() {
+		return parameter -> {
+			Exponential q1 = parameter.q1();
+			Exponential mean = parameter.mean();
+			Exponential q3 = parameter.q3();
+			return String.format("%.1f<Q1<%.1f | %.1f<mean<%.1f | %.1f<Q3<%.1f", //
+					q1.start(), q1.end(), mean.start(), mean.end(), q3.start(), q3.end());
+		};
+	}
+
+	public Supplier<Parameters> parametersGenerator() {
 		return () -> {
 			Exponential q1 = Exponential.fromScaleBaseIntercept(1, 1, 1);
 			Exponential q3 = Exponential.fromScaleBaseIntercept(1, 1, 3);
@@ -33,10 +46,10 @@ public class ExponentialModelOperators {
 		};
 	}
 
-	public Function<Parameters, Parameters> parameterAdapter() {
+	public Function<Parameters, Parameters> parametersAdapter() {
 		return params -> {
 			double randScale = 10;
-			System.out.println("Rand scale: " + randScale);
+			printStream.println("Rand scale: " + randScale);
 			double delta = randScale * (rand.nextDouble() - 0.5);
 
 			List<Parameters> candidates = Stream.of(//
@@ -101,7 +114,7 @@ public class ExponentialModelOperators {
 		};
 	}
 
-	interface Parameters {
+	public interface Parameters {
 
 		Exponential q1();
 

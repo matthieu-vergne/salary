@@ -15,11 +15,15 @@ public class ReferenceFactorModelOperators {
 		this.referenceStatistics = referenceStatistics;
 	}
 
-	public Supplier<Double> parameterGenerator() {
+	public Function<Double, String> parametersFormatter() {
+		return factor -> "Ref x" + factor;
+	}
+
+	public Supplier<Double> parametersGenerator() {
 		return () -> 1.0;
 	}
 
-	public Function<Double, Double> parameterAdapter() {
+	public Function<Double, Double> parametersAdapter() {
 		return factor -> factor + (rand.nextDouble() - 0.5);
 	}
 

@@ -1,6 +1,10 @@
 package fr.vergne.salary;
 
 import java.io.PrintStream;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -18,7 +22,6 @@ import fr.vergne.salary.data.StatisticsDataset;
 import fr.vergne.salary.evaluation.ErrorBounds;
 import fr.vergne.salary.evaluation.ErrorBoundsOperators;
 import fr.vergne.salary.model.AffineModelOperators;
-import fr.vergne.salary.model.AffineModelOperators.Parameters;
 import fr.vergne.salary.model.ExponentialModelOperators;
 import fr.vergne.salary.model.Model;
 import fr.vergne.salary.model.ReferenceFactorModelOperators;
@@ -32,34 +35,37 @@ public class Main {
 		int chartWidth = 500;
 		int chartHeight = 500;
 		int transitionWidth = 50;
-		int salariesPerProfileInEvaluation = 1000;
+		int salariesPerProfileInEvaluation = 10000;
 		int salariesPerProfileInReport = 10;
 		int randomSeed = 0;
 
-		System.out.println("Create reference statistics");
+		System.out.println(currentTime() + " Create reference statistics");
 		StatisticsDataset referenceStatistics = createReferenceDataset();
 		Set<Profile> splitProfiles = referenceStatistics//
 				.splitProfiles()//
 				.toMap().keySet();
 
+		PrintStream printStream = new PrintStream(PrintStream.nullOutputStream());
 		ReferenceFactorModelOperators referenceFactorModelOperators = new ReferenceFactorModelOperators(//
 				new Random(randomSeed), //
 				referenceStatistics);
 		AffineModelOperators affineModelOperators = new AffineModelOperators(//
 				new Random(randomSeed), //
-				splitProfiles);
+				splitProfiles, //
+				printStream);
 		ExponentialModelOperators exponentialModelOperators = new ExponentialModelOperators(//
 				new Random(randomSeed), //
-				splitProfiles);
+				splitProfiles, //
+				printStream);
 
-		ErrorBoundsOperators<Parameters> errorBoundsOperators = new ErrorBoundsOperators<>(//
+		ErrorBoundsOperators<AffineModelOperators.Parameters> errorBoundsOperators = new ErrorBoundsOperators<>(//
 				randomSeed, //
 				salariesPerProfileInEvaluation, //
 				referenceStatistics);
 		var modelOperators = affineModelOperators;
 		var evaluationOperators = errorBoundsOperators;
 
-		GraphicalReport<Parameters, ErrorBounds> report = GraphicalReport.create(//
+		GraphicalReport<AffineModelOperators.Parameters, ErrorBounds> report = GraphicalReport.create(//
 				reportTitle, //
 				chartWidth, //
 				chartHeight, //
@@ -74,20 +80,56 @@ public class Main {
 
 		// TODO Parametered model on logarithmic curves
 		// TODO GA to converge parameters to reference
-		SearchAlgorithm algorithm = SearchAlgorithm.createDownHill(//
+		SearchAlgorithm algorithm = SearchAlgorithm.createHillClimbing(//
 				modelOperators.parametersGenerator(), //
 				modelOperators.parametersAdapter(), //
 				modelOperators.modelFactory(), //
 				evaluationOperators.modelEvaluator(), //
 				evaluationOperators.scoreComparator(), //
 				evaluationOperators.scoreFormatter(), //
-				createStepDisplayer(errorBoundsOperators.scoreFormatter(), System.out, reportUpdater), //
+				//createStepDisplayer(errorBoundsOperators.scoreFormatter(), System.out), //
+				createReportUpdater(reportUpdater), //
 				observeSuccessFailure(modelOperators));
 		while (true) {// TODO Export loop control to report so we can dispose on close
 			algorithm.iterate();
 		}
 	}
 
+	private static ZonedDateTime currentTime() {
+		return Instant.now().atZone(ZoneId.systemDefault());
+	}
+
+	private static <P, S> IterationListener<P, S> observeSuccessFailure(Object observer) {
+		// Ignore any type which does not implement SuccessFailureObserver
+		return new SearchAlgorithm.IterationListener<P, S>() {
+
+			@Override
+			public void startIteration() {
+				// Ignore
+			}
+
+			@Override
+			public void parameterGenerated(P parameter) {
+				// Ignore
+			}
+
+			@Override
+			public void modelGenerated(Model<P> model) {
+				// Ignore
+			}
+
+			@Override
+			public void modelScored(Model<P> model, S score) {
+				// Ignore
+			}
+
+			@Override
+			public void bestModelSelected(Model<P> model) {
+				// Ignore
+			}
+		};
+	}
+	
 	private static <P, S> IterationListener<P, S> observeSuccessFailure(SuccessFailureObserver observer) {
 		return new SearchAlgorithm.IterationListener<P, S>() {
 
@@ -125,7 +167,7 @@ public class Main {
 	}
 
 	private static <P, S> IterationListener<P, S> createStepDisplayer(Function<S, String> scoreFormatter,
-			PrintStream out, ReportUpdater<P, S> reportUpdater) {
+			PrintStream out) {
 		return new SearchAlgorithm.IterationListener<P, S>() {
 
 			Model<P> bestModel;
@@ -160,9 +202,44 @@ public class Main {
 				if (model == candidateModel) {
 					bestModel = candidateModel;
 					bestScore = candidateScore;
-					reportUpdater.updateReportModel(bestModel);
 				}
 				out.println(String.format("Best: %s (%s)", bestModel, bestScore));
+			}
+		};
+	}
+
+	private static <P, S> IterationListener<P, S> createReportUpdater(ReportUpdater<P, S> reportUpdater) {
+		return new SearchAlgorithm.IterationListener<P, S>() {
+
+			Model<P> bestModel;
+			Model<P> candidateModel;
+
+			@Override
+			public void startIteration() {
+				// Ignore
+			}
+
+			@Override
+			public void parameterGenerated(P parameter) {
+				// Ignore
+			}
+
+			@Override
+			public void modelGenerated(Model<P> model) {
+				candidateModel = model;
+			}
+
+			@Override
+			public void modelScored(Model<P> model, S score) {
+				// Ignore
+			}
+
+			@Override
+			public void bestModelSelected(Model<P> model) {
+				if (model == candidateModel) {
+					bestModel = candidateModel;
+					reportUpdater.updateReportModel(bestModel);
+				}
 			}
 		};
 	}
@@ -252,7 +329,7 @@ public class Main {
 		}
 
 		public void updateReportModel(Model<?> model) {
-			System.out.println("Update model in report");
+			System.out.println(currentTime() + " Update model in report");
 			preparator.applyModelToReport();
 		}
 	}

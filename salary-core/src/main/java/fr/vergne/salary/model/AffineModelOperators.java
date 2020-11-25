@@ -1,5 +1,6 @@
 package fr.vergne.salary.model;
 
+import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Arrays;
@@ -24,10 +25,12 @@ import fr.vergne.salary.util.SuccessFailureObserver;
 public class AffineModelOperators implements SuccessFailureObserver {
 	private final Random rand;
 	private final Set<Profile> profiles;
+	private final PrintStream printStream;
 
-	public AffineModelOperators(Random rand, Set<Profile> profiles) {
+	public AffineModelOperators(Random rand, Set<Profile> profiles, PrintStream printStream) {
 		this.rand = rand;
 		this.profiles = profiles;
+		this.printStream = printStream;
 	}
 
 	public Function<Parameters, String> parametersFormatter() {
@@ -201,7 +204,7 @@ public class AffineModelOperators implements SuccessFailureObserver {
 			Map<Parameters, ParametersMutator> invalidMutators = new HashMap<>(appliedMutators);
 			invalidMutators.keySet().removeAll(candidates);
 			invalidMutators.values().forEach(mutator -> {
-				System.out.println("X " + mutator);
+				printStream.println("X " + mutator);
 				mutator.notifyFailure();
 			});
 
@@ -210,7 +213,7 @@ public class AffineModelOperators implements SuccessFailureObserver {
 			} else {
 				Parameters newParameters = candidates.get(rand.nextInt(candidates.size()));
 				appliedMutator = appliedMutators.get(newParameters);
-				System.out.println("Adaptation: " + appliedMutator);
+				printStream.println("Adaptation: " + appliedMutator);
 				return newParameters;
 			}
 		};
@@ -417,8 +420,8 @@ public class AffineModelOperators implements SuccessFailureObserver {
 
 	private void displayAdaptationSummary() {
 		if (appliedMutator != null) {
-			System.out.println(String.format("Interest: %.2f%%", 100.0 / (1 + appliedMutator.consecutiveFailures)));
-			System.out.println(String.format("Ratio: %.2f%%", 100 * appliedMutator.successRatio));
+			printStream.println(String.format("Interest: %.2f%%", 100.0 / (1 + appliedMutator.consecutiveFailures)));
+			printStream.println(String.format("Ratio: %.2f%%", 100 * appliedMutator.successRatio));
 		}
 	}
 }

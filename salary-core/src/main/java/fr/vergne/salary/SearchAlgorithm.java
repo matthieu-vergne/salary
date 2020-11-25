@@ -45,7 +45,7 @@ public interface SearchAlgorithm {
 	}
 
 	@SafeVarargs
-	static <P, S> SearchAlgorithm createDownHill(//
+	static <P, S> SearchAlgorithm createHillClimbing(//
 			Supplier<P> parameterGenerator, //
 			Function<P, P> parameterAdapter, //
 			Function<P, Model<P>> modelFactory, //
